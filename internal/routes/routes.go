@@ -28,6 +28,11 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Post("/asociados", gestor.CrearAsociado)
 	gestorGroup.Get("/asociados/:id", gestor.ObtenerAsociado)
 
+	// Documentos (Expediente)
+	gestorGroup.Get("/asociados/:asociado_id/expediente", gestor.ObtenerExpediente)
+	gestorGroup.Post("/documentos/upload", gestor.SubirDocumento)
+
+
 	// Servir archivos subidos
 	app.Static("/uploads", "./uploads")
 
