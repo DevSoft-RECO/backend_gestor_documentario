@@ -1,5 +1,9 @@
 package models
 
+import (
+	"time"
+)
+
 type Categoria struct {
 	ID            uint           `gorm:"primaryKey" json:"id"`
 	Nombre        string         `gorm:"size:150;not null" json:"nombre"`
@@ -20,4 +24,17 @@ type Subcategoria struct {
 
 func (Subcategoria) TableName() string {
 	return "subcategorias"
+}
+
+type Asociado struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	CodigoCliente  *string   `gorm:"size:50" json:"codigo_cliente"`
+	DPI            string    `gorm:"size:20;uniqueIndex" json:"dpi"`
+	NombreCompleto string    `gorm:"size:255;not null" json:"nombre_completo"`
+	Direccion      string    `gorm:"type:text" json:"direccion"`
+	FechaRegistro  time.Time `gorm:"autoCreateTime" json:"fecha_registro"`
+}
+
+func (Asociado) TableName() string {
+	return "asociados"
 }

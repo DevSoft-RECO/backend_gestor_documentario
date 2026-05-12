@@ -23,6 +23,11 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Post("/subcategorias", gestor.CreateSubcategoria)
 	gestorGroup.Put("/subcategorias/:id", gestor.UpdateSubcategoria)
 
+	// Asociados
+	gestorGroup.Get("/asociados/search", gestor.BuscarAsociado)
+	gestorGroup.Post("/asociados", gestor.CrearAsociado)
+	gestorGroup.Get("/asociados/:id", gestor.ObtenerAsociado)
+
 	// Servir archivos subidos
 	app.Static("/uploads", "./uploads")
 
