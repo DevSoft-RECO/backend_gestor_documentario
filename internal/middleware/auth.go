@@ -15,10 +15,12 @@ func AuthRequired(c *fiber.Ctx) error {
 
 	token := strings.Replace(rawAuth, "Bearer ", "", 1)
 	
-	_, err := auth.VerifyToken(token)
+	claims, err := auth.VerifyToken(token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"detail": "Token inválido o expirado", "error": err.Error()})
 	}
+
+	c.Locals("userClaims", claims)
 
 	return c.Next()
 }

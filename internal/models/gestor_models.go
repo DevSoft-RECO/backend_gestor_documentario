@@ -47,12 +47,32 @@ type Documento struct {
 	FilePath            string       `gorm:"type:text;not null" json:"file_path"`
 	FechaCreacion       time.Time    `gorm:"autoCreateTime" json:"fecha_creacion"`
 	UltimaActualizacion time.Time    `gorm:"autoUpdateTime" json:"ultima_actualizacion"`
+	UsuarioID           uint         `gorm:"not null;default:1" json:"usuario_id"` // Quien creó el documento inicialmente
 
 	// Relaciones
-	Asociado     Asociado     `gorm:"foreignKey:AsociadoID" json:"asociado"`
-	Subcategoria Subcategoria `gorm:"foreignKey:SubcategoriaID" json:"subcategoria"`
+	Asociado     Asociado       `gorm:"foreignKey:AsociadoID" json:"asociado"`
+	Subcategoria Subcategoria   `gorm:"foreignKey:SubcategoriaID" json:"subcategoria"`
+	Indices      []IndicePagina `gorm:"foreignKey:DocumentoID" json:"indices"`
 }
 
 func (Documento) TableName() string {
 	return "documentos"
+}
+
+type IndicePagina struct {
+	ID               uint       `gorm:"primaryKey" json:"id"`
+	DocumentoID      uint       `gorm:"not null" json:"documento_id"`
+	PaginaInicio     int        `gorm:"not null" json:"pagina_inicio"`
+	TipoMovimiento   string     `gorm:"size:50;not null" json:"tipo_movimiento"`
+	Etiqueta         string     `gorm:"size:255;not null" json:"etiqueta"`
+	FechaVencimiento *time.Time `json:"fecha_vencimiento"`
+	FechaOperacion   time.Time  `gorm:"autoCreateTime" json:"fecha_operacion"`
+	UsuarioID        uint       `gorm:"not null;default:1" json:"usuario_id"`
+
+	// Relaciones
+	Documento Documento `gorm:"foreignKey:DocumentoID" json:"documento"`
+}
+
+func (IndicePagina) TableName() string {
+	return "indices_paginas"
 }

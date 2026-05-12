@@ -10,6 +10,7 @@ import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 )
 
@@ -84,6 +85,20 @@ func SubirDocumento(c *fiber.Ctx) error {
 	// Ruta relativa para servir mediante HTTP (reemplazando barras invertidas de Windows si las hay)
 	httpPath := fmt.Sprintf("/uploads/expedientes/asociado_%d/%s", asociadoID, fileName)
 
+	// Extraer UsuarioID del token
+	var usuarioID uint = 1 // Fallback
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		if sub, ok := claims["sub"]; ok {
+			if idFloat, ok := sub.(float64); ok {
+				usuarioID = uint(idFloat)
+			} else if idStr, ok := sub.(string); ok {
+				if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+					usuarioID = uint(parsed)
+				}
+			}
+		}
+	}
+
 	// Buscar si ya existe un documento para esta combinación Asociado+Subcategoría
 	var documento models.Documento
 	result := db.DB.Where("asociado_id = ? AND subcategoria_id = ?", asociadoID, subcategoriaID).First(&documento)
@@ -101,9 +116,11 @@ func SubirDocumento(c *fiber.Ctx) error {
 			AsociadoID:     uint(asociadoID),
 			SubcategoriaID: uint(subcategoriaID),
 			FilePath:       httpPath,
+			UsuarioID:      usuarioID,
 		}
 		if err := db.DB.Create(&documento).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear registro de documento"})
+			fmt.Printf("[ERROR] Falló al crear documento en BD: %v\n", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear registro de documento", "detalle": err.Error()})
 		}
 	}
 
