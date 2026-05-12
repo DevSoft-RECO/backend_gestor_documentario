@@ -65,6 +65,7 @@ type IndicePagina struct {
 	PaginaInicio     int        `gorm:"not null" json:"pagina_inicio"`
 	TipoMovimiento   string     `gorm:"size:50;not null" json:"tipo_movimiento"`
 	Etiqueta         string     `gorm:"size:255;not null" json:"etiqueta"`
+	NumeroDocumento  *string    `gorm:"size:100" json:"numero_documento"`
 	FechaVencimiento *time.Time `json:"fecha_vencimiento"`
 	FechaOperacion   time.Time  `gorm:"autoCreateTime" json:"fecha_operacion"`
 	UsuarioID        uint       `gorm:"not null;default:1" json:"usuario_id"`

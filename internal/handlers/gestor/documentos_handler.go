@@ -124,6 +124,38 @@ func SubirDocumento(c *fiber.Ctx) error {
 		}
 	}
 
+	// Crear índice inicial si se proporciona etiqueta
+	etiqueta := c.FormValue("etiqueta")
+	if etiqueta != "" {
+		fechaVencimiento := c.FormValue("fecha_vencimiento")
+		var fechaVencimientoPtr *time.Time
+		if fechaVencimiento != "" {
+			if parsedDate, err := time.Parse("2006-01-02", fechaVencimiento); err == nil {
+				fechaVencimientoPtr = &parsedDate
+			}
+		}
+
+		// Limpiar posible índice anterior en la página 1 si se está sobreescribiendo el fólder
+		db.DB.Where("documento_id = ? AND pagina_inicio = 1", documento.ID).Delete(&models.IndicePagina{})
+
+		numeroDocumento := c.FormValue("numero_documento")
+		var numDocPtr *string
+		if numeroDocumento != "" {
+			numDocPtr = &numeroDocumento
+		}
+
+		indice := models.IndicePagina{
+			DocumentoID:      documento.ID,
+			PaginaInicio:     1,
+			TipoMovimiento:   "Documento Maestro",
+			Etiqueta:         etiqueta,
+			NumeroDocumento:  numDocPtr,
+			UsuarioID:        usuarioID,
+			FechaVencimiento: fechaVencimientoPtr,
+		}
+		db.DB.Create(&indice)
+	}
+
 	// Devolver el documento creado/actualizado
 	// Precargamos la subcategoría para enviarla al frontend
 	db.DB.Preload("Subcategoria").First(&documento, documento.ID)

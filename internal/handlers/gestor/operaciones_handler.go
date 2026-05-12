@@ -137,12 +137,19 @@ func InsertarPaginas(c *fiber.Ctx) error {
 	// Crear el nuevo índice si enviaron etiqueta
 	var nuevoIndice *models.IndicePagina
 	if etiqueta != "" {
+		numeroDocumento := c.FormValue("numero_documento")
+		var numDocPtr *string
+		if numeroDocumento != "" {
+			numDocPtr = &numeroDocumento
+		}
+
 		indice := models.IndicePagina{
-			DocumentoID:    documento.ID,
-			PaginaInicio:   targetPage + 1,
-			TipoMovimiento: "Inserción",
-			Etiqueta:       etiqueta,
-			UsuarioID:      getUsuarioIDFromToken(c),
+			DocumentoID:     documento.ID,
+			PaginaInicio:    targetPage + 1,
+			TipoMovimiento:  "Inserción",
+			Etiqueta:        etiqueta,
+			NumeroDocumento: numDocPtr,
+			UsuarioID:       getUsuarioIDFromToken(c),
 		}
 		fechaVencimiento := c.FormValue("fecha_vencimiento")
 		if fechaVencimiento != "" {
