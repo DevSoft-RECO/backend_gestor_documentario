@@ -37,6 +37,7 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Post("/documentos/:documento_id/insertar", gestor.InsertarPaginas)
 	gestorGroup.Post("/documentos/:documento_id/reemplazar", gestor.ReemplazarPaginaEspecifica)
 	gestorGroup.Delete("/documentos/:documento_id/eliminar", gestor.EliminarPaginaEspecifica)
+	gestorGroup.Get("/busqueda/documento/:numero", gestor.BuscarDocumentoPorNumero)
 
 
 	// Servir archivos subidos
