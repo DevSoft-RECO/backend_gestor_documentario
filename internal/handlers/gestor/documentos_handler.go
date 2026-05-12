@@ -64,6 +64,12 @@ func SubirDocumento(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Subcategoría no encontrada"})
 	}
 
+	// Obtener el asociado para extraer su código de cliente
+	var asociado models.Asociado
+	if err := db.DB.First(&asociado, asociadoID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Asociado no encontrado"})
+	}
+
 	// Crear el directorio específico para este asociado si no existe
 	baseUploadPath := "./uploads/expedientes"
 	asociadoDir := filepath.Join(baseUploadPath, fmt.Sprintf("asociado_%d", asociadoID))
@@ -71,10 +77,17 @@ func SubirDocumento(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear directorio en el servidor"})
 	}
 
-	// Limpiar el nombre de la subcategoría para usarlo como nombre de archivo
-	// En un entorno de producción, sería mejor una función de sanitización completa.
-	// Por simplicidad, usamos subcategoriaID y timestamp.
-	fileName := fmt.Sprintf("doc_subcat_%d_%d.pdf", subcategoriaID, time.Now().Unix())
+	// Usar el Código de Cliente para el nombre del archivo. Fallback a DPI o ID.
+	identificador := ""
+	if asociado.CodigoCliente != nil && *asociado.CodigoCliente != "" {
+		identificador = *asociado.CodigoCliente
+	} else if asociado.DPI != "" {
+		identificador = asociado.DPI
+	} else {
+		identificador = fmt.Sprintf("id_%d", asociadoID)
+	}
+
+	fileName := fmt.Sprintf("doc_subcat_%d_%s.pdf", subcategoriaID, identificador)
 	filePath := filepath.Join(asociadoDir, fileName)
 
 	// Guardar el archivo físico
