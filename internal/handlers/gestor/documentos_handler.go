@@ -123,6 +123,10 @@ func SubirDocumento(c *fiber.Ctx) error {
 		if err := db.DB.Save(&documento).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar registro de documento"})
 		}
+
+		// Como se sobreescribió todo el PDF físico, debemos eliminar todos los índices lógicos anteriores
+		// para evitar desincronizaciones con las páginas del nuevo documento.
+		db.DB.Where("documento_id = ?", documento.ID).Delete(&models.IndicePagina{})
 	} else {
 		// No existe: crearlo nuevo
 		documento = models.Documento{
@@ -147,9 +151,6 @@ func SubirDocumento(c *fiber.Ctx) error {
 				fechaVencimientoPtr = &parsedDate
 			}
 		}
-
-		// Limpiar posible índice anterior en la página 1 si se está sobreescribiendo el fólder
-		db.DB.Where("documento_id = ? AND pagina_inicio = 1", documento.ID).Delete(&models.IndicePagina{})
 
 		numeroDocumento := c.FormValue("numero_documento")
 		var numDocPtr *string
