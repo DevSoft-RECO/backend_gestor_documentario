@@ -31,17 +31,32 @@ func getUsuarioIDFromToken(c *fiber.Ctx) uint {
 	return usuarioID
 }
 
-// ObtenerIndices devuelve los índices asociados a un documento
+// ObtenerIndices devuelve los índices asociados a un documento y el total de páginas físicas.
 func ObtenerIndices(c *fiber.Ctx) error {
 	documentoID := c.Params("documento_id")
-	var indices []models.IndicePagina
 	
+	var documento models.Documento
+	if err := db.DB.First(&documento, documentoID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
+	}
+
+	var indices []models.IndicePagina
 	err := db.DB.Where("documento_id = ?", documentoID).Order("pagina_inicio ASC").Find(&indices).Error
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener índices"})
 	}
+
+	// Contar páginas físicas
+	masterPath := "." + documento.FilePath
+	totalPaginas, err := api.PageCountFile(masterPath)
+	if err != nil {
+		totalPaginas = 0
+	}
 	
-	return c.JSON(indices)
+	return c.JSON(fiber.Map{
+		"indices":        indices,
+		"total_paginas": totalPaginas,
+	})
 }
 
 // InsertarPaginas inserta hojas nuevas después de una página específica. Si targetPage = total, anexa al final.
