@@ -55,7 +55,7 @@ func ConnectDB() {
 	}
 
 	// Auto-migración
-	if err := DB.AutoMigrate(&models.Agencia{}, &models.Usuario{}); err != nil {
+	if err := DB.AutoMigrate(&models.Agencia{}, &models.Usuario{}, &models.Categoria{}, &models.Subcategoria{}); err != nil {
 		log.Printf("[ERROR] Error en auto-migración: %v", err)
 	}
 
