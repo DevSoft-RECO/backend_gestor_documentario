@@ -1,10 +1,12 @@
 package gestor
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
@@ -34,7 +36,7 @@ func getUsuarioIDFromToken(c *fiber.Ctx) uint {
 // ObtenerIndices devuelve los índices asociados a un documento y el total de páginas físicas.
 func ObtenerIndices(c *fiber.Ctx) error {
 	documentoID := c.Params("documento_id")
-	
+
 	var documento models.Documento
 	if err := db.DB.First(&documento, documentoID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
@@ -52,9 +54,9 @@ func ObtenerIndices(c *fiber.Ctx) error {
 	if err != nil {
 		totalPaginas = 0
 	}
-	
+
 	return c.JSON(fiber.Map{
-		"indices":        indices,
+		"indices":       indices,
 		"total_paginas": totalPaginas,
 	})
 }
@@ -76,9 +78,46 @@ func InsertarPaginas(c *fiber.Ctx) error {
 	etiqueta := c.FormValue("etiqueta") // Puede ser vacía si no quiere dejar índice
 
 	var documento models.Documento
-	if err := db.DB.First(&documento, documentoID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento maestro no encontrado"})
+	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").First(&documento, documentoID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento Inicial no encontrado"})
 	}
+
+	// === VERIFICACIÓN DE PERMISOS ===
+	usuarioID := getUsuarioIDFromToken(c)
+	isSuperAdmin := false
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		if rolesRaw, ok := claims["roles"]; ok {
+			if s, ok := rolesRaw.(string); ok && s == "Super Admin" { isSuperAdmin = true }
+			if ss, ok := rolesRaw.([]interface{}); ok {
+				for _, r := range ss { if r == "Super Admin" { isSuperAdmin = true; break } }
+			}
+		}
+	}
+
+	var userLocal models.Usuario
+	db.DB.First(&userLocal, usuarioID)
+	isSuperAdminDB := false
+	if userLocal.Roles != nil {
+		var roles []string
+		if err := json.Unmarshal([]byte(*userLocal.Roles), &roles); err == nil {
+			for _, r := range roles { if r == "Super Admin" { isSuperAdminDB = true; break } }
+		} else if strings.Contains(*userLocal.Roles, "Super Admin") { isSuperAdminDB = true }
+	}
+
+	if !isSuperAdmin && !isSuperAdminDB {
+		if len(documento.Subcategoria.PuestosAutorizados) > 0 {
+			authorized := false
+			if userLocal.IDPuesto != nil {
+				for _, p := range documento.Subcategoria.PuestosAutorizados {
+					if p.ID == *userLocal.IDPuesto { authorized = true; break }
+				}
+			}
+			if !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permiso para modificar este documento"})
+			}
+		}
+	}
+	// === FIN VERIFICACIÓN DE PERMISOS ===
 
 	file, err := c.FormFile("documento")
 	if err != nil {
@@ -198,9 +237,44 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 
 	var documento models.Documento
-	if err := db.DB.First(&documento, documentoID).Error; err != nil {
+	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").First(&documento, documentoID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
 	}
+
+	// === VERIFICACIÓN DE PERMISOS ===
+	usuarioID_Rep := getUsuarioIDFromToken(c)
+	isSuperAdmin_Rep := false
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		if rolesRaw, ok := claims["roles"]; ok {
+			if s, ok := rolesRaw.(string); ok && s == "Super Admin" { isSuperAdmin_Rep = true }
+			if ss, ok := rolesRaw.([]interface{}); ok {
+				for _, r := range ss { if r == "Super Admin" { isSuperAdmin_Rep = true; break } }
+			}
+		}
+	}
+	var userLocal_Rep models.Usuario
+	db.DB.First(&userLocal_Rep, usuarioID_Rep)
+	isSuperAdminDB_Rep := false
+	if userLocal_Rep.Roles != nil {
+		var roles []string
+		if err := json.Unmarshal([]byte(*userLocal_Rep.Roles), &roles); err == nil {
+			for _, r := range roles { if r == "Super Admin" { isSuperAdminDB_Rep = true; break } }
+		} else if strings.Contains(*userLocal_Rep.Roles, "Super Admin") { isSuperAdminDB_Rep = true }
+	}
+	if !isSuperAdmin_Rep && !isSuperAdminDB_Rep {
+		if len(documento.Subcategoria.PuestosAutorizados) > 0 {
+			authorized := false
+			if userLocal_Rep.IDPuesto != nil {
+				for _, p := range documento.Subcategoria.PuestosAutorizados {
+					if p.ID == *userLocal_Rep.IDPuesto { authorized = true; break }
+				}
+			}
+			if !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permiso para modificar este documento"})
+			}
+		}
+	}
+	// === FIN VERIFICACIÓN DE PERMISOS ===
 
 	file, err := c.FormFile("documento") // La nueva hoja
 	if err != nil {
@@ -280,9 +354,44 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 
 	var documento models.Documento
-	if err := db.DB.First(&documento, documentoID).Error; err != nil {
+	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").First(&documento, documentoID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
 	}
+
+	// === VERIFICACIÓN DE PERMISOS ===
+	usuarioID_Del := getUsuarioIDFromToken(c)
+	isSuperAdmin_Del := false
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		if rolesRaw, ok := claims["roles"]; ok {
+			if s, ok := rolesRaw.(string); ok && s == "Super Admin" { isSuperAdmin_Del = true }
+			if ss, ok := rolesRaw.([]interface{}); ok {
+				for _, r := range ss { if r == "Super Admin" { isSuperAdmin_Del = true; break } }
+			}
+		}
+	}
+	var userLocal_Del models.Usuario
+	db.DB.First(&userLocal_Del, usuarioID_Del)
+	isSuperAdminDB_Del := false
+	if userLocal_Del.Roles != nil {
+		var roles []string
+		if err := json.Unmarshal([]byte(*userLocal_Del.Roles), &roles); err == nil {
+			for _, r := range roles { if r == "Super Admin" { isSuperAdminDB_Del = true; break } }
+		} else if strings.Contains(*userLocal_Del.Roles, "Super Admin") { isSuperAdminDB_Del = true }
+	}
+	if !isSuperAdmin_Del && !isSuperAdminDB_Del {
+		if len(documento.Subcategoria.PuestosAutorizados) > 0 {
+			authorized := false
+			if userLocal_Del.IDPuesto != nil {
+				for _, p := range documento.Subcategoria.PuestosAutorizados {
+					if p.ID == *userLocal_Del.IDPuesto { authorized = true; break }
+				}
+			}
+			if !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permiso para modificar este documento"})
+			}
+		}
+	}
+	// === FIN VERIFICACIÓN DE PERMISOS ===
 
 	masterPath := "." + documento.FilePath
 	pageCount, err := api.PageCountFile(masterPath)

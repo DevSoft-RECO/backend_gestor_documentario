@@ -1,10 +1,12 @@
 package gestor
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
@@ -70,14 +72,21 @@ func SubirDocumento(c *fiber.Ctx) error {
 	var usuarioID uint = 1 // Fallback
 	isSuperAdmin := false
 	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
-		// Verificar si es Super Admin
+		// Verificar si es Super Admin o Administrador de forma robusta
 		if rolesRaw, ok := claims["roles"]; ok {
-			if roles, ok := rolesRaw.([]interface{}); ok {
-				for _, r := range roles {
-					if r == "Super Admin" || r == "Administrador" { // Ajustar según nombres reales
-						isSuperAdmin = true
-						break
+			switch r := rolesRaw.(type) {
+			case []interface{}:
+				for _, role := range r {
+					if s, ok := role.(string); ok {
+						if s == "Super Admin" || s == "Administrador" || s == "Admin" {
+							isSuperAdmin = true
+							break
+						}
 					}
+				}
+			case string:
+				if r == "Super Admin" || r == "Administrador" || r == "Admin" {
+					isSuperAdmin = true
 				}
 			}
 		}
@@ -93,26 +102,50 @@ func SubirDocumento(c *fiber.Ctx) error {
 		}
 	}
 
-	if !isSuperAdmin {
-		var userLocal models.Usuario
-		if err := db.DB.Preload("Puesto").First(&userLocal, usuarioID).Error; err == nil {
-			// Si la subcategoría tiene restricciones de puestos
-			if len(subcategoria.PuestosAutorizados) > 0 {
-				authorized := false
-				if userLocal.IDPuesto != nil {
-					for _, p := range subcategoria.PuestosAutorizados {
-						if p.ID == *userLocal.IDPuesto {
-							authorized = true
-							break
-						}
+	// === VERIFICACIÓN DE PERMISOS POR PUESTO / ROL ===
+	var userLocal models.Usuario
+	if err := db.DB.Preload("Puesto").First(&userLocal, usuarioID).Error; err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Usuario no encontrado en la base local"})
+	}
+
+	// Verificar si es Super Admin desde la columna roles (JSON) de la tabla usuarios
+	isSuperAdminDB := false
+	if userLocal.Roles != nil {
+		var roles []string
+		// Intentamos decodificar el array JSON
+		if err := json.Unmarshal([]byte(*userLocal.Roles), &roles); err == nil {
+			for _, r := range roles {
+				if r == "Super Admin" {
+					isSuperAdminDB = true
+					break
+				}
+			}
+		} else {
+			// Fallback si por alguna razón no es un array JSON puro
+			if strings.Contains(*userLocal.Roles, "Super Admin") {
+				isSuperAdminDB = true
+			}
+		}
+	}
+
+	// Si NO es Super Admin (ni por token ni por DB), aplicamos restricción por puesto
+	if !isSuperAdmin && !isSuperAdminDB {
+		// Si la subcategoría tiene restricciones de puestos
+		if len(subcategoria.PuestosAutorizados) > 0 {
+			authorized := false
+			if userLocal.IDPuesto != nil {
+				for _, p := range subcategoria.PuestosAutorizados {
+					if p.ID == *userLocal.IDPuesto {
+						authorized = true
+						break
 					}
 				}
-				if !authorized {
-					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-						"error":   "No tienes permiso para crear carpetas/documentos en esta subcategoría",
-						"detalle": "Tu puesto no está autorizado para esta categoría.",
-					})
-				}
+			}
+			if !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"error":   "No tienes permiso para crear carpetas/documentos en esta subcategoría",
+					"detalle": "Tu puesto no está autorizado para esta categoría.",
+				})
 			}
 		}
 	}
@@ -203,7 +236,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 		indice := models.IndicePagina{
 			DocumentoID:      documento.ID,
 			PaginaInicio:     1,
-			TipoMovimiento:   "Documento Maestro",
+			TipoMovimiento:   "Documento Inicial",
 			Etiqueta:         etiqueta,
 			NumeroDocumento:  numDocPtr,
 			UsuarioID:        usuarioID,
