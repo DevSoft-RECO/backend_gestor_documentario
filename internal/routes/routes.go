@@ -23,6 +23,10 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Post("/subcategorias", gestor.CreateSubcategoria)
 	gestorGroup.Put("/subcategorias/:id", gestor.UpdateSubcategoria)
 
+	// Puestos (Sincronización y listado)
+	gestorGroup.Get("/puestos", gestor.GetPuestos)
+	gestorGroup.Post("/puestos/sync", gestor.SyncPuestos)
+
 	// Asociados
 	gestorGroup.Get("/asociados/search", gestor.BuscarAsociado)
 	gestorGroup.Post("/asociados", gestor.CrearAsociado)

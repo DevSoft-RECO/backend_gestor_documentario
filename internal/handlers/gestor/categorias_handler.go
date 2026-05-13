@@ -10,7 +10,7 @@ import (
 
 func GetCategorias(c *fiber.Ctx) error {
 	var categorias []models.Categoria
-	if err := db.DB.Preload("Subcategorias").Find(&categorias).Error; err != nil {
+	if err := db.DB.Preload("Subcategorias").Preload("Subcategorias.PuestosAutorizados").Find(&categorias).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener categorías"})
 	}
 	return c.JSON(categorias)
@@ -75,8 +75,14 @@ func UpdateSubcategoria(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
 	}
 
+	// Guardar cambios básicos
 	if err := db.DB.Save(subcategoria).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar subcategoría"})
+	}
+
+	// Actualizar asociación muchos a muchos con Puestos
+	if err := db.DB.Model(subcategoria).Association("PuestosAutorizados").Replace(subcategoria.PuestosAutorizados); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar puestos autorizados"})
 	}
 
 	return c.JSON(subcategoria)

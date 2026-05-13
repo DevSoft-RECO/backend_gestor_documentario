@@ -23,6 +23,8 @@ type Usuario struct {
 	JTI         *string `gorm:"size:100" json:"jti"`
 	Roles       *string `json:"roles"`       // Store as JSON string
 	Permissions *string `json:"permissions"` // Store as JSON string
+	IDPuesto    *uint   `json:"id_puesto"`   // Relacionado con el Puesto
+	Puesto      *Puesto `gorm:"foreignKey:IDPuesto" json:"puesto,omitempty"`
 }
 
 func (Usuario) TableName() string {

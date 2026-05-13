@@ -21,6 +21,7 @@ func ObtenerExpediente(c *fiber.Ctx) error {
 
 	var documentos []models.Documento
 	err := db.DB.Preload("Subcategoria").
+		Preload("Subcategoria.PuestosAutorizados").
 		Preload("Subcategoria.Categoria", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Nombre")
 		}).
@@ -58,11 +59,64 @@ func SubirDocumento(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No se recibió ningún archivo o es inválido"})
 	}
 
-	// Obtener información de la subcategoría para nombrar el archivo
+	// Obtener información de la subcategoría para nombrar el archivo y verificar permisos
 	var subcategoria models.Subcategoria
-	if err := db.DB.First(&subcategoria, subcategoriaID).Error; err != nil {
+	if err := db.DB.Preload("PuestosAutorizados").First(&subcategoria, subcategoriaID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Subcategoría no encontrada"})
 	}
+
+	// === VERIFICACIÓN DE PERMISOS POR PUESTO ===
+	// 1. Obtener el usuario actual con su puesto y roles
+	var usuarioID uint = 1 // Fallback
+	isSuperAdmin := false
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		// Verificar si es Super Admin
+		if rolesRaw, ok := claims["roles"]; ok {
+			if roles, ok := rolesRaw.([]interface{}); ok {
+				for _, r := range roles {
+					if r == "Super Admin" || r == "Administrador" { // Ajustar según nombres reales
+						isSuperAdmin = true
+						break
+					}
+				}
+			}
+		}
+
+		if sub, ok := claims["sub"]; ok {
+			if idFloat, ok := sub.(float64); ok {
+				usuarioID = uint(idFloat)
+			} else if idStr, ok := sub.(string); ok {
+				if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+					usuarioID = uint(parsed)
+				}
+			}
+		}
+	}
+
+	if !isSuperAdmin {
+		var userLocal models.Usuario
+		if err := db.DB.Preload("Puesto").First(&userLocal, usuarioID).Error; err == nil {
+			// Si la subcategoría tiene restricciones de puestos
+			if len(subcategoria.PuestosAutorizados) > 0 {
+				authorized := false
+				if userLocal.IDPuesto != nil {
+					for _, p := range subcategoria.PuestosAutorizados {
+						if p.ID == *userLocal.IDPuesto {
+							authorized = true
+							break
+						}
+					}
+				}
+				if !authorized {
+					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+						"error":   "No tienes permiso para crear carpetas/documentos en esta subcategoría",
+						"detalle": "Tu puesto no está autorizado para esta categoría.",
+					})
+				}
+			}
+		}
+	}
+	// === FIN VERIFICACIÓN DE PERMISOS ===
 
 	// Obtener el asociado para extraer su código de cliente
 	var asociado models.Asociado
@@ -98,19 +152,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 	// Ruta relativa para servir mediante HTTP (reemplazando barras invertidas de Windows si las hay)
 	httpPath := fmt.Sprintf("/uploads/expedientes/asociado_%d/%s", asociadoID, fileName)
 
-	// Extraer UsuarioID del token
-	var usuarioID uint = 1 // Fallback
-	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
-		if sub, ok := claims["sub"]; ok {
-			if idFloat, ok := sub.(float64); ok {
-				usuarioID = uint(idFloat)
-			} else if idStr, ok := sub.(string); ok {
-				if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
-					usuarioID = uint(parsed)
-				}
-			}
-		}
-	}
+	// Extraer UsuarioID del token (ya extraído arriba en la verificación de permisos)
 
 	// Buscar si ya existe un documento para esta combinación Asociado+Subcategoría
 	var documento models.Documento

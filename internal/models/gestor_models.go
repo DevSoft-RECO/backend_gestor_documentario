@@ -4,6 +4,15 @@ import (
 	"time"
 )
 
+type Puesto struct {
+	ID     uint   `gorm:"primaryKey" json:"id"`
+	Nombre string `gorm:"size:150;not null;uniqueIndex" json:"nombre"`
+}
+
+func (Puesto) TableName() string {
+	return "puestos"
+}
+
 type Categoria struct {
 	ID            uint           `gorm:"primaryKey" json:"id"`
 	Nombre        string         `gorm:"size:150;not null" json:"nombre"`
@@ -21,6 +30,9 @@ type Subcategoria struct {
 	Nombre      string    `gorm:"size:150;not null" json:"nombre"`
 	Estado      bool      `gorm:"default:true" json:"estado"`
 	Categoria   Categoria `gorm:"foreignKey:CategoriaID" json:"categoria"`
+
+	// Relación muchos a muchos con Puestos
+	PuestosAutorizados []Puesto `gorm:"many2many:subcategoria_puestos;" json:"puestos_autorizados"`
 }
 
 func (Subcategoria) TableName() string {
