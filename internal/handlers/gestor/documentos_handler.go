@@ -23,6 +23,7 @@ func ObtenerExpediente(c *fiber.Ctx) error {
 
 	var documentos []models.Documento
 	err := db.DB.Preload("Subcategoria").
+		Preload("Usuario").
 		Preload("Subcategoria.PuestosAutorizados").
 		Preload("Subcategoria.Categoria", func(db *gorm.DB) *gorm.DB {
 			return db.Select("ID, Nombre")
@@ -247,7 +248,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 
 	// Devolver el documento creado/actualizado
 	// Precargamos la subcategoría para enviarla al frontend
-	db.DB.Preload("Subcategoria").First(&documento, documento.ID)
+	db.DB.Preload("Subcategoria").Preload("Usuario").First(&documento, documento.ID)
 
 	return c.Status(fiber.StatusOK).JSON(documento)
 }

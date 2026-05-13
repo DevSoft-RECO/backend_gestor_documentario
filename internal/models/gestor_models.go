@@ -64,6 +64,7 @@ type Documento struct {
 	// Relaciones
 	Asociado     Asociado       `gorm:"foreignKey:AsociadoID" json:"asociado"`
 	Subcategoria Subcategoria   `gorm:"foreignKey:SubcategoriaID" json:"subcategoria"`
+	Usuario      Usuario        `gorm:"foreignKey:UsuarioID" json:"usuario"`
 	Indices      []IndicePagina `gorm:"foreignKey:DocumentoID" json:"indices"`
 }
 
