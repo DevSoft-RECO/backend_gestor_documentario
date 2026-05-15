@@ -47,9 +47,10 @@ type MotherUserData struct {
 	Avatar      string      `json:"avatar"`
 	IDAgencia   *int        `json:"idagencia"`
 	Roles       interface{} `json:"roles"`
-	Permissions interface{} `json:"permissions"`
-	Permisos    interface{} `json:"permisos"` // Laravel might use permisos
-	Puesto      MotherPuesto `json:"puesto"`   // Captura el puesto de forma robusta
+	Permissions         interface{}  `json:"permissions"`
+	Permisos            interface{}  `json:"permisos"` // Laravel might use permisos
+	PermissionsDetailed interface{}  `json:"permissions_detailed"`
+	Puesto              MotherPuesto `json:"puesto"` // Captura el puesto de forma robusta
 	Agencia     struct {
 		ID        int     `json:"id"`
 		Nombre    string  `json:"nombre"`

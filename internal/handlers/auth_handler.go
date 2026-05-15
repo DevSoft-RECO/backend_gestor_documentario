@@ -72,10 +72,7 @@ func MeHandler(c *fiber.Ctx) error {
 
 	// Normalize roles and permissions
 	roles := normalizeList(motherData.Roles)
-	permissions := normalizeList(motherData.Permissions)
-	if len(permissions) == 0 {
-		permissions = normalizeList(motherData.Permisos)
-	}
+	permissions := normalizePermissions(motherData.PermissionsDetailed, "app_documentos")
 
 	// Upsert Agency
 	if motherData.Agencia.ID != 0 {
@@ -163,6 +160,29 @@ func normalizeList(raw interface{}) []string {
 					list = append(list, name)
 				}
 			} else if s, ok := item.(string); ok {
+				list = append(list, s)
+			}
+		}
+	}
+	return list
+}
+
+// normalizePermissions filtra los permisos provenientes de la App Madre
+// manteniendo únicamente los que pertenecen a la categoría solicitada.
+func normalizePermissions(raw interface{}, requiredCategory string) []string {
+	var list []string
+	switch v := raw.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				cat, catOk := m["category"].(string) // Busca la llave "category"
+				if catOk && cat == requiredCategory { // Verifica si coincide con la app
+					if name, ok := m["name"].(string); ok {
+						list = append(list, name) // Guarda el nombre del permiso
+					}
+				}
+			} else if s, ok := item.(string); ok {
+				// Fallback si por alguna razón vienen como simples strings
 				list = append(list, s)
 			}
 		}
