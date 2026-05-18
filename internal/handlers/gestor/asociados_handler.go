@@ -34,6 +34,31 @@ func CrearAsociado(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
 	}
 
+	// Validaciones de unicidad con mensajes de error descriptivos y personalizados
+
+	// 1. Validar que el DPI no esté vacío y no esté duplicado
+	if asociado.DPI == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El documento DPI es requerido"})
+	}
+	var countDPI int64
+	if err := db.DB.Model(&models.Asociado{}).Where("dpi = ?", asociado.DPI).Count(&countDPI).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error interno al verificar el DPI"})
+	}
+	if countDPI > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "El documento DPI ya se encuentra registrado para otro asociado"})
+	}
+
+	// 2. Validar que el Código Cliente no esté duplicado (si se proporciona)
+	if asociado.CodigoCliente != nil && *asociado.CodigoCliente != "" {
+		var countCod int64
+		if err := db.DB.Model(&models.Asociado{}).Where("codigo_cliente = ?", *asociado.CodigoCliente).Count(&countCod).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error interno al verificar el Código Cliente"})
+		}
+		if countCod > 0 {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "El Código Cliente ya se encuentra asignado a otro asociado"})
+		}
+	}
+
 	if err := db.DB.Create(asociado).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al registrar asociado"})
 	}
