@@ -33,7 +33,8 @@ func main() {
 
 	// 4. Init Fiber
 	app := fiber.New(fiber.Config{
-		AppName: "APP6 Créditos — Backend Go",
+		AppName:   "APP9 Gestor Documentario — Backend Go",
+		BodyLimit: 100 * 1024 * 1024, // Limite de 100MB para subida de archivos (Documentos)
 	})
 
 	// 5. Middleware
