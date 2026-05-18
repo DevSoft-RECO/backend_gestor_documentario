@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"gorm.io/gorm"
 )
 
@@ -158,13 +159,6 @@ func SubirDocumento(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Asociado no encontrado"})
 	}
 
-	// Crear el directorio específico para este asociado si no existe
-	baseUploadPath := "./uploads/expedientes"
-	asociadoDir := filepath.Join(baseUploadPath, fmt.Sprintf("asociado_%d", asociadoID))
-	if err := os.MkdirAll(asociadoDir, os.ModePerm); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear directorio en el servidor"})
-	}
-
 	// Usar el Código de Cliente para el nombre del archivo. Fallback a DPI o ID.
 	identificador := ""
 	if asociado.CodigoCliente != nil && *asociado.CodigoCliente != "" {
@@ -176,26 +170,47 @@ func SubirDocumento(c *fiber.Ctx) error {
 	}
 
 	fileName := fmt.Sprintf("doc_subcat_%d_%s.pdf", subcategoriaID, identificador)
-	filePath := filepath.Join(asociadoDir, fileName)
+	gcsObjectName := fmt.Sprintf("App_Documentos/asociado_%d/%s", asociadoID, fileName)
 
-	// Guardar el archivo físico
-	if err := c.SaveFile(file, filePath); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar el archivo físico"})
+	// Crear archivo temporal local para contar páginas
+	tempFile, err := os.CreateTemp("", "upload_gcs_*.pdf")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al inicializar temporal"})
+	}
+	tempFilePath := tempFile.Name()
+	defer os.Remove(tempFilePath)
+	tempFile.Close()
+
+	if err := c.SaveFile(file, tempFilePath); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar temporal local"})
 	}
 
-	// Ruta relativa para servir mediante HTTP (reemplazando barras invertidas de Windows si las hay)
-	httpPath := fmt.Sprintf("/uploads/expedientes/asociado_%d/%s", asociadoID, fileName)
+	// Contar páginas usando pdfcpu
+	totalPaginas, err := api.PageCountFile(tempFilePath)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF subido no es válido o está corrupto"})
+	}
 
-	// Extraer UsuarioID del token (ya extraído arriba en la verificación de permisos)
+	// Abrir el archivo temporal para subirlo a GCS
+	fToUpload, err := os.Open(tempFilePath)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al leer archivo temporal para subir"})
+	}
+	defer fToUpload.Close()
+
+	// Subir archivo a GCS
+	if err := gcs.SubirArchivo(c.UserContext(), gcsObjectName, fToUpload); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir archivo a la nube", "detalle": err.Error()})
+	}
 
 	// Buscar si ya existe un documento para esta combinación Asociado+Subcategoría
 	var documento models.Documento
 	result := db.DB.Where("asociado_id = ? AND subcategoria_id = ?", asociadoID, subcategoriaID).First(&documento)
 
 	if result.Error == nil {
-		// Ya existe: actualizar la ruta y el timestamp
-		// (Opcional: eliminar el archivo físico anterior del disco aquí)
-		documento.FilePath = httpPath
+		// Ya existe: actualizar la ruta, total de páginas y el timestamp
+		documento.FilePath = gcsObjectName
+		documento.TotalPaginas = totalPaginas
 		if err := db.DB.Save(&documento).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar registro de documento"})
 		}
@@ -208,7 +223,8 @@ func SubirDocumento(c *fiber.Ctx) error {
 		documento = models.Documento{
 			AsociadoID:     uint(asociadoID),
 			SubcategoriaID: uint(subcategoriaID),
-			FilePath:       httpPath,
+			FilePath:       gcsObjectName,
+			TotalPaginas:   totalPaginas,
 			UsuarioID:      usuarioID,
 		}
 		if err := db.DB.Create(&documento).Error; err != nil {
@@ -251,4 +267,109 @@ func SubirDocumento(c *fiber.Ctx) error {
 	db.DB.Preload("Subcategoria").Preload("Usuario").First(&documento, documento.ID)
 
 	return c.Status(fiber.StatusOK).JSON(documento)
+}
+
+// getUsuarioIDFromClaims extrae el ID del usuario de los claims de JWT.
+func getUsuarioIDFromClaims(c *fiber.Ctx) uint {
+	var usuarioID uint = 1 // Fallback
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		if sub, ok := claims["sub"]; ok {
+			if idFloat, ok := sub.(float64); ok {
+				usuarioID = uint(idFloat)
+			} else if idStr, ok := sub.(string); ok {
+				if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+					usuarioID = uint(parsed)
+				}
+			}
+		}
+	}
+	return usuarioID
+}
+
+// GenerarURLDocumento genera una URL firmada de 1 minuto para poder visualizar el documento de forma temporal.
+func GenerarURLDocumento(c *fiber.Ctx) error {
+	documentoIDStr := c.Params("documento_id")
+	documentoID, err := strconv.ParseUint(documentoIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de documento inválido"})
+	}
+
+	var documento models.Documento
+	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").First(&documento, documentoID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
+	}
+
+	// === VERIFICACIÓN DE PERMISOS ===
+	usuarioID := getUsuarioIDFromClaims(c)
+	isSuperAdmin := false
+	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
+		if rolesRaw, ok := claims["roles"]; ok {
+			switch r := rolesRaw.(type) {
+			case []interface{}:
+				for _, role := range r {
+					if s, ok := role.(string); ok {
+						if s == "Super Admin" || s == "Administrador" || s == "Admin" {
+							isSuperAdmin = true
+							break
+						}
+					}
+				}
+			case string:
+				if r == "Super Admin" || r == "Administrador" || r == "Admin" {
+					isSuperAdmin = true
+				}
+			}
+		}
+	}
+
+	var userLocal models.Usuario
+	if err := db.DB.Preload("Puesto").First(&userLocal, usuarioID).Error; err == nil {
+		isSuperAdminDB := false
+		if userLocal.Roles != nil {
+			var roles []string
+			if err := json.Unmarshal([]byte(*userLocal.Roles), &roles); err == nil {
+				for _, r := range roles {
+					if r == "Super Admin" {
+						isSuperAdminDB = true
+						break
+					}
+				}
+			} else if strings.Contains(*userLocal.Roles, "Super Admin") {
+				isSuperAdminDB = true
+			}
+		}
+
+		if !isSuperAdmin && !isSuperAdminDB {
+			if len(documento.Subcategoria.PuestosAutorizados) > 0 {
+				authorized := false
+				if userLocal.IDPuesto != nil {
+					for _, p := range documento.Subcategoria.PuestosAutorizados {
+						if p.ID == *userLocal.IDPuesto {
+							authorized = true
+							break
+						}
+					}
+				}
+				if !authorized {
+					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+						"error":   "No tienes permiso para visualizar este documento",
+						"detalle": "Tu puesto no está autorizado.",
+					})
+				}
+			}
+		}
+	}
+
+	// Generar URL firmada de 1 minuto
+	url, err := gcs.GenerarURLFirmada(documento.FilePath, 1*time.Minute)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Error al generar el enlace de visualización",
+			"detalle": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"url": url,
+	})
 }

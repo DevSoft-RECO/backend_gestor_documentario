@@ -57,6 +57,7 @@ type Documento struct {
 	AsociadoID          uint         `gorm:"not null;uniqueIndex:idx_asociado_subcategoria" json:"asociado_id"`
 	SubcategoriaID      uint         `gorm:"not null;uniqueIndex:idx_asociado_subcategoria" json:"subcategoria_id"`
 	FilePath            string       `gorm:"type:text;not null" json:"file_path"`
+	TotalPaginas        int          `gorm:"default:0" json:"total_paginas"`
 	FechaCreacion       time.Time    `gorm:"autoCreateTime" json:"fecha_creacion"`
 	UltimaActualizacion time.Time    `gorm:"autoUpdateTime" json:"ultima_actualizacion"`
 	UsuarioID           uint         `gorm:"not null;default:1" json:"usuario_id"` // Quien creó el documento inicialmente

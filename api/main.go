@@ -7,6 +7,7 @@ import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/auth"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/config"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/routes"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -19,6 +20,11 @@ func main() {
 
 	// 2. Connect DB
 	db.ConnectDB()
+
+	// 2.5. Initialize GCS Client
+	if err := gcs.InitGCS(); err != nil {
+		log.Printf("[WARN] No se pudo inicializar GCS: %v. El almacenamiento en la nube fallará.", err)
+	}
 
 	// 3. Load Auth Keys
 	if err := auth.LoadPublicKey(); err != nil {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -48,16 +49,9 @@ func ObtenerIndices(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener índices"})
 	}
 
-	// Contar páginas físicas
-	masterPath := "." + documento.FilePath
-	totalPaginas, err := api.PageCountFile(masterPath)
-	if err != nil {
-		totalPaginas = 0
-	}
-
 	return c.JSON(fiber.Map{
 		"indices":       indices,
-		"total_paginas": totalPaginas,
+		"total_paginas": documento.TotalPaginas,
 	})
 }
 
@@ -130,7 +124,13 @@ func InsertarPaginas(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempNewPath)
 
-	masterPath := "." + documento.FilePath
+	// Descargar el documento maestro desde GCS a un archivo temporal local
+	masterPath, err := gcs.DescargarArchivoTemporal(c.UserContext(), documento.FilePath)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al descargar documento maestro de GCS", "detalle": err.Error()})
+	}
+	defer os.Remove(masterPath)
+
 	tempOutPath := filepath.Join(os.TempDir(), fmt.Sprintf("temp_insert_out_%d.pdf", time.Now().UnixNano()))
 
 	pageCountMaster, err := api.PageCountFile(masterPath)
@@ -173,11 +173,23 @@ func InsertarPaginas(c *fiber.Ctx) error {
 
 	tx := db.DB.Begin()
 
-	// 1. Físico
-	input, _ := os.ReadFile(tempOutPath)
-	if err := os.WriteFile(masterPath, input, 0644); err != nil {
+	// 1. Físico (Subir a GCS)
+	outFile, err := os.Open(tempOutPath)
+	if err != nil {
 		tx.Rollback()
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al sobrescribir PDF físico"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al leer PDF reconstruido"})
+	}
+	defer outFile.Close()
+
+	if err := gcs.SubirArchivo(c.UserContext(), documento.FilePath, outFile); err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir PDF reconstruido a la nube", "detalle": err.Error()})
+	}
+
+	// 1.5 Lógico: Actualizar total_paginas en BD
+	if err := tx.Model(&documento).Update("total_paginas", pageCountMaster+pageCountNew).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar total de páginas en BD"})
 	}
 
 	// 2. Lógico: Actualizar índices posteriores sumando el número de hojas insertadas
@@ -287,7 +299,13 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempNewPath)
 
-	masterPath := "." + documento.FilePath
+	// Descargar el documento maestro desde GCS a un archivo temporal local
+	masterPath, err := gcs.DescargarArchivoTemporal(c.UserContext(), documento.FilePath)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al descargar documento maestro de GCS", "detalle": err.Error()})
+	}
+	defer os.Remove(masterPath)
+
 	pageCount, err := api.PageCountFile(masterPath)
 	if err != nil || targetPage > pageCount {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "La página indicada supera el total de páginas del documento"})
@@ -320,11 +338,17 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 
 	tx := db.DB.Begin()
 
-	// 1. Físico
-	input, _ := os.ReadFile(tempOutPath)
-	if err := os.WriteFile(masterPath, input, 0644); err != nil {
+	// 1. Físico (Subir a GCS)
+	outFile, err := os.Open(tempOutPath)
+	if err != nil {
 		tx.Rollback()
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al sobrescribir PDF físico"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al leer PDF reconstruido"})
+	}
+	defer outFile.Close()
+
+	if err := gcs.SubirArchivo(c.UserContext(), documento.FilePath, outFile); err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir PDF reconstruido a la nube", "detalle": err.Error()})
 	}
 
 	// 2. Lógico: Actualizar fecha y usuario si existe un índice apuntando a esta página exacta
@@ -393,7 +417,13 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 	// === FIN VERIFICACIÓN DE PERMISOS ===
 
-	masterPath := "." + documento.FilePath
+	// Descargar el documento maestro desde GCS a un archivo temporal local
+	masterPath, err := gcs.DescargarArchivoTemporal(c.UserContext(), documento.FilePath)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al descargar documento maestro de GCS", "detalle": err.Error()})
+	}
+	defer os.Remove(masterPath)
+
 	pageCount, err := api.PageCountFile(masterPath)
 	if err != nil || targetPage > pageCount {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "La página indicada es inválida o supera el total"})
@@ -428,11 +458,23 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 
 	tx := db.DB.Begin()
 
-	// 1. Físico
-	input, _ := os.ReadFile(tempOutPath)
-	if err := os.WriteFile(masterPath, input, 0644); err != nil {
+	// 1. Físico (Subir a GCS)
+	outFile, err := os.Open(tempOutPath)
+	if err != nil {
 		tx.Rollback()
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al sobrescribir PDF físico"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al leer PDF reconstruido"})
+	}
+	defer outFile.Close()
+
+	if err := gcs.SubirArchivo(c.UserContext(), documento.FilePath, outFile); err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir PDF reconstruido a la nube", "detalle": err.Error()})
+	}
+
+	// 1.5 Lógico: Actualizar total_paginas en BD
+	if err := tx.Model(&documento).Update("total_paginas", pageCount-1).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar total de páginas en BD"})
 	}
 
 	// 2. Lógico: Eliminar el índice que apuntaba exactamente a esta página (si existe)

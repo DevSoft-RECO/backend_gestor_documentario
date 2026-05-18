@@ -36,6 +36,7 @@ func SetupRoutes(app *fiber.App) {
 	// Documentos (Expediente)
 	gestorGroup.Get("/asociados/:asociado_id/expediente", gestor.ObtenerExpediente)
 	gestorGroup.Post("/documentos/upload", gestor.SubirDocumento)
+	gestorGroup.Get("/documentos/:documento_id/url", gestor.GenerarURLDocumento)
 
 	// Operaciones Quirúrgicas (Índices y Manipulación por Página)
 	gestorGroup.Get("/documentos/:documento_id/indices", gestor.ObtenerIndices)
@@ -46,8 +47,8 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Get("/dashboard/stats", gestor.GetDashboardStats)
 
 
-	// Servir archivos subidos
-	app.Static("/uploads", "./uploads")
+	// Servir archivos subidos (Deshabilitado: migrado a almacenamiento GCS con URLs firmadas temporales)
+	// app.Static("/uploads", "./uploads")
 
 	// Health check
 	app.Get("/", func(c *fiber.Ctx) error {
