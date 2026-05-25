@@ -4,6 +4,7 @@ import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/config"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers/gestor"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers/manuales"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -46,6 +47,20 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Get("/busqueda/documento/:numero", gestor.BuscarDocumentoPorNumero)
 	gestorGroup.Get("/dashboard/stats", gestor.GetDashboardStats)
 
+	// Módulo Independiente de Manuales (Biblioteca de Documentación) - Protegido
+	manualesGroup := api.Group("/manuales", middleware.AuthRequired)
+	// Lectores generales (por puesto)
+	manualesGroup.Get("/biblioteca", manuales.GetBibliotecaManuales)
+	manualesGroup.Get("/documentos/:id/url", manuales.GenerarURLManual)
+	// Admin (Super Admin o permiso admin_biblioteca)
+	manualesGroup.Get("/admin/categorias", manuales.GetAdminCategorias)
+	manualesGroup.Post("/categorias", manuales.CreateCategoria)
+	manualesGroup.Put("/categorias/:id", manuales.UpdateCategoria)
+	manualesGroup.Post("/subcategorias", manuales.CreateSubcategoria)
+	manualesGroup.Put("/subcategorias/:id", manuales.UpdateSubcategoria)
+	manualesGroup.Post("/documentos/upload", manuales.SubirManual)
+	manualesGroup.Put("/documentos/:id", manuales.UpdateManual)
+	manualesGroup.Delete("/documentos/:id", manuales.DeleteManual)
 
 	// Servir archivos subidos (Deshabilitado: migrado a almacenamiento GCS con URLs firmadas temporales)
 	// app.Static("/uploads", "./uploads")
