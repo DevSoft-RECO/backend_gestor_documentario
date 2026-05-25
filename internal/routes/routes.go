@@ -33,6 +33,8 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Get("/asociados/search", gestor.BuscarAsociado)
 	gestorGroup.Post("/asociados", gestor.CrearAsociado)
 	gestorGroup.Get("/asociados/:id", gestor.ObtenerAsociado)
+	gestorGroup.Get("/admin/asociados", gestor.GetAdminAsociados)
+	gestorGroup.Delete("/admin/asociados/:id", gestor.DeleteAdminAsociado)
 
 	// Documentos (Expediente)
 	gestorGroup.Get("/asociados/:asociado_id/expediente", gestor.ObtenerExpediente)
