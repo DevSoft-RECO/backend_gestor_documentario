@@ -35,6 +35,13 @@ type AlertaVencimiento struct {
 	Subcategoria     string    `json:"subcategoria"`
 }
 
+type RecentManualItem struct {
+	Titulo        string    `json:"titulo"`
+	FechaCreacion time.Time `json:"fecha_creacion"`
+	UsuarioNombre string    `json:"usuario_nombre"`
+	Subcategoria  string    `json:"subcategoria"`
+}
+
 type DashboardStats struct {
 	TotalAsociados         int64               `json:"total_asociados"`
 	TotalDocumentos        int64               `json:"total_documentos"`
@@ -46,6 +53,13 @@ type DashboardStats struct {
 	DocumentosPorCategoria []CategoryCount     `json:"documentos_por_categoria"`
 	ActividadReciente      []ActividadItem     `json:"actividad_reciente"`
 	AlertasVencimiento     []AlertaVencimiento `json:"alertas_vencimiento"`
+	// Nuevas métricas de manuales
+	TotalManuales           int64               `json:"total_manuales"`
+	TotalCategoriasManuales int64               `json:"total_categorias_manuales"`
+	TotalPaginasManuales    int64               `json:"total_paginas_manuales"`
+	ManualesCreadosMes      int64               `json:"manuales_creados_mes"`
+	ManualesPorCategoria    []CategoryCount     `json:"manuales_por_categoria"`
+	ManualesRecientes       []RecentManualItem  `json:"manuales_recientes"`
 }
 
 // GetDashboardStats devuelve las métricas consolidadas del sistema.
@@ -132,6 +146,42 @@ func GetDashboardStats(c *fiber.Ctx) error {
 		Order("indices_paginas.fecha_vencimiento ASC").
 		Scan(&alertas)
 	stats.AlertasVencimiento = alertas
+
+	// --- 11. Métricas de Biblioteca de Manuales ---
+	// A. Total Manuales
+	db.DB.Table("manual_documentos").Count(&stats.TotalManuales)
+
+	// B. Total Categorías de Manuales Activas
+	db.DB.Table("manual_categorias").Where("estado = ?", true).Count(&stats.TotalCategoriasManuales)
+
+	// C. Total Páginas de Manuales (Volumen Documental)
+	db.DB.Table("manual_documentos").Select("COALESCE(SUM(total_paginas), 0)").Scan(&stats.TotalPaginasManuales)
+
+	// D. Manuales Creados en el Mes Actual
+	db.DB.Table("manual_documentos").Where("fecha_creacion >= ?", inicioMes).Count(&stats.ManualesCreadosMes)
+
+	// E. Manuales por Categoría
+	var manualesPorCat []CategoryCount
+	db.DB.Table("manual_documentos").
+		Select("manual_categorias.nombre AS nombre, COUNT(manual_documentos.id) AS total").
+		Joins("JOIN manual_subcategorias ON manual_documentos.manual_subcategoria_id = manual_subcategorias.id").
+		Joins("JOIN manual_categorias ON manual_subcategorias.manual_categoria_id = manual_categorias.id").
+		Where("manual_categorias.estado = ? AND manual_subcategorias.estado = ?", true, true).
+		Group("manual_categorias.nombre").
+		Order("total DESC").
+		Scan(&manualesPorCat)
+	stats.ManualesPorCategoria = manualesPorCat
+
+	// F. Manuales Recientes (últimos 5)
+	var manualesRecientes []RecentManualItem
+	db.DB.Table("manual_documentos").
+		Select("manual_documentos.titulo, manual_documentos.fecha_creacion, usuarios.name AS usuario_nombre, manual_subcategorias.nombre AS subcategoria").
+		Joins("JOIN usuarios ON manual_documentos.usuario_id = usuarios.id").
+		Joins("JOIN manual_subcategorias ON manual_documentos.manual_subcategoria_id = manual_subcategorias.id").
+		Order("manual_documentos.fecha_creacion DESC").
+		Limit(5).
+		Scan(&manualesRecientes)
+	stats.ManualesRecientes = manualesRecientes
 
 	return c.JSON(stats)
 }
