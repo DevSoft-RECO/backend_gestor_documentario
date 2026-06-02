@@ -158,6 +158,8 @@ func GetAdminCategorias(c *fiber.Ctx) error {
 		return db.Order("nombre ASC")
 	}).Preload("Subcategorias.Documentos", func(db *gorm.DB) *gorm.DB {
 		return db.Preload("PuestosAutorizados").Order("titulo ASC")
+	}).Preload("Subcategorias.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
+		return db.Order("id ASC")
 	}).Order("nombre ASC").Find(&categorias).Error
 
 	if err != nil {
@@ -336,6 +338,24 @@ func SubirManual(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir manual a GCS", "detalle": err.Error()})
 	}
 
+	numeroActa := c.FormValue("numero_acta")
+	fechaAprobacionStr := c.FormValue("fecha_aprobacion")
+	fechaVigenciaStr := c.FormValue("fecha_vigencia")
+
+	var fechaAprobacion *time.Time
+	if fechaAprobacionStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaAprobacionStr); err == nil {
+			fechaAprobacion = &parsedDate
+		}
+	}
+
+	var fechaVigencia *time.Time
+	if fechaVigenciaStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaVigenciaStr); err == nil {
+			fechaVigencia = &parsedDate
+		}
+	}
+
 	// Crear el registro del manual
 	manual := models.ManualDocumento{
 		ManualSubcategoriaID: uint(subcategoriaID),
@@ -343,6 +363,9 @@ func SubirManual(c *fiber.Ctx) error {
 		FilePath:             gcsObjectName,
 		TotalPaginas:         totalPaginas,
 		UsuarioID:            usuarioID,
+		NumeroActa:           numeroActa,
+		FechaAprobacion:      fechaAprobacion,
+		FechaVigencia:        fechaVigencia,
 	}
 
 	if err := db.DB.Create(&manual).Error; err != nil {
@@ -396,6 +419,27 @@ func UpdateManual(c *fiber.Ctx) error {
 		if subID, err := strconv.ParseUint(subcategoriaIDStr, 10, 32); err == nil {
 			manual.ManualSubcategoriaID = uint(subID)
 		}
+	}
+
+	// Actualizar nuevos campos
+	manual.NumeroActa = c.FormValue("numero_acta")
+
+	fechaAprobacionStr := c.FormValue("fecha_aprobacion")
+	if fechaAprobacionStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaAprobacionStr); err == nil {
+			manual.FechaAprobacion = &parsedDate
+		}
+	} else {
+		manual.FechaAprobacion = nil
+	}
+
+	fechaVigenciaStr := c.FormValue("fecha_vigencia")
+	if fechaVigenciaStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaVigenciaStr); err == nil {
+			manual.FechaVigencia = &parsedDate
+		}
+	} else {
+		manual.FechaVigencia = nil
 	}
 
 	// Actualizar archivo físico si se proporciona
@@ -497,6 +541,8 @@ func GetBibliotecaManuales(c *fiber.Ctx) error {
 		// Admin ve todo
 		err := query.Preload("Subcategorias.Documentos", func(db *gorm.DB) *gorm.DB {
 			return db.Preload("PuestosAutorizados").Order("titulo ASC")
+		}).Preload("Subcategorias.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
 		}).Order("nombre ASC").Find(&categorias).Error
 
 		if err != nil {
@@ -509,6 +555,8 @@ func GetBibliotecaManuales(c *fiber.Ctx) error {
 			return db.Joins("JOIN manual_documento_puestos mdp ON mdp.manual_documento_id = manual_documentos.id").
 				Where("mdp.puesto_id = ?", puestoID).
 				Order("titulo ASC")
+		}).Preload("Subcategorias.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
 		}).Where("estado = ?", true).Order("nombre ASC").Find(&categorias).Error
 
 		if err != nil {
@@ -567,6 +615,257 @@ func GenerarURLManual(c *fiber.Ctx) error {
 
 	// Generar enlace seguro en GCS por 1 minuto
 	url, err := gcs.GenerarURLFirmada(manual.FilePath, 1*time.Minute)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al generar enlace seguro de visualización"})
+	}
+
+	return c.JSON(fiber.Map{"url": url})
+}
+
+func SubirActualizacion(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
+	}
+
+	manualIDStr := c.Params("id")
+	manualID, err := strconv.ParseUint(manualIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de manual inválido"})
+	}
+
+	var manual models.ManualDocumento
+	if err := db.DB.First(&manual, manualID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Manual no encontrado"})
+	}
+
+	numeroActa := c.FormValue("numero_acta")
+	fechaAprobacionStr := c.FormValue("fecha_aprobacion")
+	fechaVigenciaStr := c.FormValue("fecha_vigencia")
+	descripcion := c.FormValue("descripcion")
+
+	if strings.TrimSpace(numeroActa) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El número de acta es obligatorio"})
+	}
+
+	// 1. Recibir ambos archivos
+	fileChanges, errChanges := c.FormFile("documento") // Hojas que cambiaron
+	if errChanges != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No se recibió el archivo PDF con las hojas de cambio"})
+	}
+
+	fileOriginal, errOriginal := c.FormFile("documento_original") // Manual completo consolidado
+	if errOriginal != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No se recibió el archivo PDF original completo actualizado"})
+	}
+
+	// Obtener ID de usuario
+	claims, _ := c.Locals("userClaims").(jwt.MapClaims)
+	var usuarioID uint = 1
+	if sub, ok := claims["sub"]; ok {
+		if idFloat, ok := sub.(float64); ok {
+			usuarioID = uint(idFloat)
+		} else if idStr, ok := sub.(string); ok {
+			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+				usuarioID = uint(parsed)
+			}
+		}
+	}
+
+	// Parsear fechas
+	var fechaAprobacion *time.Time
+	if fechaAprobacionStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaAprobacionStr); err == nil {
+			fechaAprobacion = &parsedDate
+		}
+	}
+
+	var fechaVigencia *time.Time
+	if fechaVigenciaStr != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaVigenciaStr); err == nil {
+			fechaVigencia = &parsedDate
+		}
+	}
+
+	// ==================== PROCESAR MANUAL COMPLETO ORIGINAL ====================
+	tempFileOrig, err := os.CreateTemp("", "manual_full_gcs_*.pdf")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear archivo temporal para manual completo"})
+	}
+	tempFilePathOrig := tempFileOrig.Name()
+	defer os.Remove(tempFilePathOrig)
+	tempFileOrig.Close()
+
+	if err := c.SaveFile(fileOriginal, tempFilePathOrig); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar manual completo localmente"})
+	}
+
+	totalPaginasOriginal, err := api.PageCountFile(tempFilePathOrig)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF del manual completo no es válido o está corrupto"})
+	}
+
+	fOriginalToUpload, err := os.Open(tempFilePathOrig)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al abrir manual completo para subir"})
+	}
+	defer fOriginalToUpload.Close()
+
+	// Eliminar el archivo físico actual en GCS
+	if manual.FilePath != "" {
+		if errDel := gcs.EliminarArchivo(c.UserContext(), manual.FilePath); errDel != nil {
+			fmt.Printf("[WARN] Falló al eliminar manual completo anterior en GCS (%s): %v\n", manual.FilePath, errDel)
+		}
+	}
+
+	// Subir nuevo manual completo consolidado
+	timestamp := time.Now().UnixNano()
+	fileNameCleaned := strings.ToLower(strings.ReplaceAll(manual.Titulo, " ", "_"))
+	gcsObjectNameOriginal := fmt.Sprintf("App_Manuales/subcat_%d/%d_%s.pdf", manual.ManualSubcategoriaID, timestamp, fileNameCleaned)
+
+	if err := gcs.SubirArchivo(c.UserContext(), gcsObjectNameOriginal, fOriginalToUpload); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir el nuevo manual completo a GCS", "detalle": err.Error()})
+	}
+
+	// Actualizar registro en base de datos del manual principal
+	manual.FilePath = gcsObjectNameOriginal
+	manual.TotalPaginas = totalPaginasOriginal
+	manual.UltimaActualizacion = time.Now()
+	manual.NumeroActa = numeroActa
+	if fechaVigencia != nil {
+		manual.FechaVigencia = fechaVigencia
+	}
+
+	if err := db.DB.Save(&manual).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar manual principal en base de datos"})
+	}
+
+	// ==================== PROCESAR HOJAS DE CAMBIO (ANEXO) ====================
+	// 1. Buscar todas las actualizaciones previas de este manual
+	var prevUpdates []models.ManualActualizacion
+	if err := db.DB.Where("manual_documento_id = ?", manual.ID).Find(&prevUpdates).Error; err == nil {
+		for _, prev := range prevUpdates {
+			if prev.FilePath != "" {
+				// Eliminar archivo físico de GCS
+				if errDel := gcs.EliminarArchivo(c.UserContext(), prev.FilePath); errDel != nil {
+					fmt.Printf("[WARN] Falló al eliminar hojas de cambio obsoletas en GCS (%s): %v\n", prev.FilePath, errDel)
+				}
+				// Limpiar ruta en DB
+				db.DB.Model(&prev).Update("file_path", "")
+			}
+		}
+	}
+
+	// 2. Procesar las nuevas hojas de cambio
+	tempFileChanges, err := os.CreateTemp("", "manual_changes_gcs_*.pdf")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear archivo temporal para hojas de cambio"})
+	}
+	tempFilePathChanges := tempFileChanges.Name()
+	defer os.Remove(tempFilePathChanges)
+	tempFileChanges.Close()
+
+	if err := c.SaveFile(fileChanges, tempFilePathChanges); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar hojas de cambio localmente"})
+	}
+
+	totalPaginasChanges, err := api.PageCountFile(tempFilePathChanges)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF de hojas de cambio no es válido o está corrupto"})
+	}
+
+	fChangesToUpload, err := os.Open(tempFilePathChanges)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al abrir hojas de cambio para subir"})
+	}
+	defer fChangesToUpload.Close()
+
+	// Subir archivo a GCS
+	gcsObjectNameChanges := fmt.Sprintf("App_Manuales/updates/manual_%d/%d_changes.pdf", manual.ID, timestamp)
+	if err := gcs.SubirArchivo(c.UserContext(), gcsObjectNameChanges, fChangesToUpload); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir hojas de cambio a GCS", "detalle": err.Error()})
+	}
+
+	// 3. Crear el nuevo registro en la base de datos
+	actualizacion := models.ManualActualizacion{
+		ManualDocumentoID: uint(manual.ID),
+		NumeroActa:        numeroActa,
+		FechaAprobacion:   fechaAprobacion,
+		FechaVigencia:     fechaVigencia,
+		Descripcion:       descripcion,
+		FilePath:          gcsObjectNameChanges,
+		TotalPaginas:      totalPaginasChanges,
+		UsuarioID:         usuarioID,
+	}
+
+	if err := db.DB.Create(&actualizacion).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar actualización en base de datos"})
+	}
+
+	// Recargar e incluir Usuario
+	db.DB.Preload("Usuario").First(&actualizacion, actualizacion.ID)
+
+	return c.Status(fiber.StatusCreated).JSON(actualizacion)
+}
+func DeleteActualizacion(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
+	}
+
+	id := c.Params("id")
+	var actualizacion models.ManualActualizacion
+
+	if err := db.DB.First(&actualizacion, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Hoja de actualización no encontrada"})
+	}
+
+	// Eliminar de GCS
+	if err := gcs.EliminarArchivo(c.UserContext(), actualizacion.FilePath); err != nil {
+		fmt.Printf("[WARN] Falló al eliminar actualización en GCS (%s): %v\n", actualizacion.FilePath, err)
+	}
+
+	// Eliminar de base de datos
+	if err := db.DB.Delete(&actualizacion).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar registro de actualización"})
+	}
+
+	return c.JSON(fiber.Map{"status": "ok", "message": "Hoja de actualización eliminada correctamente"})
+}
+
+func GenerarURLActualizacion(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de actualización inválido"})
+	}
+
+	var actualizacion models.ManualActualizacion
+	if err := db.DB.First(&actualizacion, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Hoja de actualización no encontrada"})
+	}
+
+	// Validar permisos del manual padre
+	var manual models.ManualDocumento
+	if err := db.DB.Preload("PuestosAutorizados").First(&manual, actualizacion.ManualDocumentoID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Manual asociado no encontrado"})
+	}
+
+	isAdmin := isUserAdmin(c)
+	if !isAdmin {
+		puestoID := getUsuarioPuestoID(c)
+		authorized := false
+		for _, p := range manual.PuestosAutorizados {
+			if p.ID == puestoID {
+				authorized = true
+				break
+			}
+		}
+		if !authorized {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes autorización de lectura para este manual"})
+		}
+	}
+
+	// Generar enlace seguro en GCS por 1 minuto
+	url, err := gcs.GenerarURLFirmada(actualizacion.FilePath, 1*time.Minute)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al generar enlace seguro de visualización"})
 	}

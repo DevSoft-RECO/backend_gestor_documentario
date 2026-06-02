@@ -64,6 +64,11 @@ func SetupRoutes(app *fiber.App) {
 	manualesGroup.Put("/documentos/:id", manuales.UpdateManual)
 	manualesGroup.Delete("/documentos/:id", manuales.DeleteManual)
 
+	// Hojas de Actualización Versionadas
+	manualesGroup.Post("/documentos/:id/actualizaciones", manuales.SubirActualizacion)
+	manualesGroup.Delete("/actualizaciones/:id", manuales.DeleteActualizacion)
+	manualesGroup.Get("/actualizaciones/:id/url", manuales.GenerarURLActualizacion)
+
 	// Servir archivos subidos (Deshabilitado: migrado a almacenamiento GCS con URLs firmadas temporales)
 	// app.Static("/uploads", "./uploads")
 

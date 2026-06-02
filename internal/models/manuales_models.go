@@ -37,6 +37,9 @@ type ManualDocumento struct {
 	FechaCreacion        time.Time          `gorm:"autoCreateTime" json:"fecha_creacion"`
 	UltimaActualizacion  time.Time          `gorm:"autoUpdateTime" json:"ultima_actualizacion"`
 	UsuarioID            uint               `gorm:"not null;default:1" json:"usuario_id"`
+	NumeroActa           string             `gorm:"size:100" json:"numero_acta"`
+	FechaAprobacion      *time.Time         `json:"fecha_aprobacion"`
+	FechaVigencia        *time.Time         `json:"fecha_vigencia"`
 
 	// Relaciones
 	Subcategoria ManualSubcategoria `gorm:"foreignKey:ManualSubcategoriaID" json:"subcategoria"`
@@ -44,8 +47,31 @@ type ManualDocumento struct {
 
 	// Relación muchos a muchos con Puestos para control de lectura granular
 	PuestosAutorizados []Puesto `gorm:"many2many:manual_documento_puestos;" json:"puestos_autorizados"`
+
+	// Relación uno a muchos con Hojas de Actualización (Cambios)
+	Actualizaciones []ManualActualizacion `gorm:"foreignKey:ManualDocumentoID;constraint:OnDelete:CASCADE;" json:"actualizaciones"`
 }
 
 func (ManualDocumento) TableName() string {
 	return "manual_documentos"
+}
+
+type ManualActualizacion struct {
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	ManualDocumentoID uint       `gorm:"not null" json:"manual_documento_id"`
+	NumeroActa        string     `gorm:"size:100;not null" json:"numero_acta"`
+	FechaAprobacion   *time.Time `json:"fecha_aprobacion"`
+	FechaVigencia     *time.Time `json:"fecha_vigencia"`
+	Descripcion       string     `gorm:"type:text" json:"descripcion"`
+	FilePath          string     `gorm:"type:text;not null" json:"file_path"`
+	TotalPaginas      int        `gorm:"default:0" json:"total_paginas"`
+	FechaCreacion     time.Time  `gorm:"autoCreateTime" json:"fecha_creacion"`
+	UsuarioID         uint       `gorm:"not null;default:1" json:"usuario_id"`
+
+	// Relación
+	Usuario Usuario `gorm:"foreignKey:UsuarioID" json:"usuario"`
+}
+
+func (ManualActualizacion) TableName() string {
+	return "manual_actualizaciones"
 }
