@@ -34,6 +34,8 @@ func CrearAsociado(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
 	}
 
+	asociado.UsuarioID = getUsuarioIDFromClaims(c)
+
 	// Validaciones de unicidad con mensajes de error descriptivos y personalizados
 
 	// 1. Validar que el DPI no esté vacío y no esté duplicado
@@ -73,6 +75,64 @@ func ObtenerAsociado(c *fiber.Ctx) error {
 	
 	if err := db.DB.First(&asociado, id).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Asociado no encontrado"})
+	}
+
+	return c.JSON(asociado)
+}
+
+// UpdateAsociado modifica los datos de un asociado existente
+func UpdateAsociado(c *fiber.Ctx) error {
+	id := c.Params("id")
+	var asociado models.Asociado
+	if err := db.DB.First(&asociado, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Asociado no encontrado"})
+	}
+
+	usuarioID := getUsuarioIDFromClaims(c)
+	isSuperAdmin := isUserSuperAdmin(c)
+
+	// Validar: Solo puede editar el usuario que creó el registro o un Super Admin
+	if asociado.UsuarioID != usuarioID && !isSuperAdmin {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos para editar este asociado. Solo el creador o un Super Admin pueden modificarlo."})
+	}
+
+	// Parsear datos para actualizar
+	updateData := new(models.Asociado)
+	if err := c.BodyParser(updateData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
+	}
+
+	// Validar que el DPI no esté vacío y no esté duplicado por otro asociado
+	if updateData.DPI == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El documento DPI es requerido"})
+	}
+	var countDPI int64
+	if err := db.DB.Model(&models.Asociado{}).Where("dpi = ? AND id != ?", updateData.DPI, asociado.ID).Count(&countDPI).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error interno al verificar el DPI"})
+	}
+	if countDPI > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "El documento DPI ya se encuentra registrado para otro asociado"})
+	}
+
+	// Validar Código Cliente
+	if updateData.CodigoCliente != nil && *updateData.CodigoCliente != "" {
+		var countCod int64
+		if err := db.DB.Model(&models.Asociado{}).Where("codigo_cliente = ? AND id != ?", *updateData.CodigoCliente, asociado.ID).Count(&countCod).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error interno al verificar el Código Cliente"})
+		}
+		if countCod > 0 {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "El Código Cliente ya se encuentra asignado a otro asociado"})
+		}
+	}
+
+	// Actualizar campos permitidos
+	asociado.NombreCompleto = updateData.NombreCompleto
+	asociado.DPI = updateData.DPI
+	asociado.CodigoCliente = updateData.CodigoCliente
+	asociado.Direccion = updateData.Direccion
+
+	if err := db.DB.Save(&asociado).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar asociado"})
 	}
 
 	return c.JSON(asociado)

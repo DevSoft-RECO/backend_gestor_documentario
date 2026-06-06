@@ -46,6 +46,7 @@ type Asociado struct {
 	NombreCompleto string    `gorm:"size:255;not null" json:"nombre_completo"`
 	Direccion      string    `gorm:"type:text" json:"direccion"`
 	FechaRegistro  time.Time `gorm:"autoCreateTime" json:"fecha_registro"`
+	UsuarioID      uint      `gorm:"default:1" json:"usuario_id"`
 }
 
 func (Asociado) TableName() string {
