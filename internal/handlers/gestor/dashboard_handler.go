@@ -25,6 +25,7 @@ type ActividadItem struct {
 	FechaOperacion time.Time `json:"fecha_operacion"`
 	UsuarioNombre  string    `json:"usuario_nombre"`
 	AsociadoNombre string    `json:"asociado_nombre"`
+	Subcategoria   string    `json:"subcategoria"`
 }
 
 type AlertaVencimiento struct {
@@ -126,10 +127,11 @@ func GetDashboardStats(c *fiber.Ctx) error {
 	// 9. Actividad Reciente (últimas 10 operaciones)
 	var actividad []ActividadItem
 	db.DB.Table("indices_paginas").
-		Select("indices_paginas.etiqueta, indices_paginas.tipo_movimiento, indices_paginas.fecha_operacion, usuarios.name AS usuario_nombre, asociados.nombre_completo AS asociado_nombre").
+		Select("indices_paginas.etiqueta, indices_paginas.tipo_movimiento, indices_paginas.fecha_operacion, usuarios.name AS usuario_nombre, asociados.nombre_completo AS asociado_nombre, subcategorias.nombre AS subcategoria").
 		Joins("JOIN documentos ON indices_paginas.documento_id = documentos.id").
 		Joins("JOIN usuarios ON indices_paginas.usuario_id = usuarios.id").
 		Joins("JOIN asociados ON documentos.asociado_id = asociados.id").
+		Joins("JOIN subcategorias ON documentos.subcategoria_id = subcategorias.id").
 		Order("indices_paginas.fecha_operacion DESC").
 		Limit(10).
 		Scan(&actividad)
