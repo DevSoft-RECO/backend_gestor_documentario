@@ -81,6 +81,12 @@ func SetupRoutes(app *fiber.App) {
 		})
 	})
 
+	// === BACKUP SYSTEM ===
+	// Rutas internas de respaldo llamadas por la APP_MADRE (Firmadas con HMAC)
+	api.Post("/internal/backup", handlers.GenerateBackupHandler)
+	api.Delete("/internal/backup", handlers.DeleteBackupHandler)
+	api.Get("/internal/download-backup", handlers.DownloadBackupHandler)
+
 	// 🕷️ 8. Arquitectura Anti-JSON (Capa de redirección)
 	app.Get("/login", func(c *fiber.Ctx) error {
 		return c.Redirect(config.Envs.FrontendURL + "/login?session_expired=true")

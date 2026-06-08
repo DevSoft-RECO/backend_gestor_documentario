@@ -18,6 +18,8 @@ type Config struct {
 	GCSProjectID       string
 	GCSBucketName      string
 	GCSKeyFile         string
+	BackupMadreToken   string
+	BackupPgDumpPath   string
 }
 
 var Envs *Config
@@ -37,6 +39,8 @@ func LoadConfig() {
 		GCSProjectID:       getEnv("GCS_PROJECT_ID", ""),
 		GCSBucketName:      getEnv("GCS_BUCKET_NAME", ""),
 		GCSKeyFile:         getEnv("GCS_KEY_FILE", ""),
+		BackupMadreToken:   getEnv("BACKUP_MADRE_TOKEN", "secreto_backup_hija_app2_2026"),
+		BackupPgDumpPath:   getEnv("BACKUP_PG_DUMP_PATH", "pg_dump"),
 	}
 
 
