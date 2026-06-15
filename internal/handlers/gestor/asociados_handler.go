@@ -137,3 +137,27 @@ func UpdateAsociado(c *fiber.Ctx) error {
 
 	return c.JSON(asociado)
 }
+
+// ObtenerActividadAsociado obtiene las últimas 5 actividades registradas para un asociado específico
+func ObtenerActividadAsociado(c *fiber.Ctx) error {
+	asociadoID := c.Params("id")
+
+	var actividad []ActividadItem
+	err := db.DB.Table("indices_paginas").
+		Select("indices_paginas.etiqueta, indices_paginas.tipo_movimiento, indices_paginas.fecha_operacion, usuarios.name AS usuario_nombre, asociados.nombre_completo AS asociado_nombre, subcategorias.nombre AS subcategoria").
+		Joins("JOIN documentos ON indices_paginas.documento_id = documentos.id").
+		Joins("JOIN usuarios ON indices_paginas.usuario_id = usuarios.id").
+		Joins("JOIN asociados ON documentos.asociado_id = asociados.id").
+		Joins("JOIN subcategorias ON documentos.subcategoria_id = subcategorias.id").
+		Where("asociados.id = ?", asociadoID).
+		Order("indices_paginas.fecha_operacion DESC").
+		Limit(5).
+		Scan(&actividad).Error
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener actividad del asociado"})
+	}
+
+	return c.JSON(actividad)
+}
+

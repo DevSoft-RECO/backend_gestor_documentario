@@ -33,6 +33,7 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Get("/asociados/search", gestor.BuscarAsociado)
 	gestorGroup.Post("/asociados", gestor.CrearAsociado)
 	gestorGroup.Get("/asociados/:id", gestor.ObtenerAsociado)
+	gestorGroup.Get("/asociados/:id/actividad", gestor.ObtenerActividadAsociado)
 	gestorGroup.Put("/asociados/:id", gestor.UpdateAsociado)
 	gestorGroup.Get("/admin/asociados", gestor.GetAdminAsociados)
 	gestorGroup.Delete("/admin/asociados/:id", gestor.DeleteAdminAsociado)
