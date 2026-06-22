@@ -55,8 +55,13 @@ func ConnectDB() {
 	}
 
 	// Auto-migración
-	if err := DB.AutoMigrate(&models.Agencia{}, &models.Usuario{}, &models.Puesto{}, &models.Categoria{}, &models.Subcategoria{}, &models.Asociado{}, &models.Documento{}, &models.IndicePagina{}, &models.ManualCategoria{}, &models.ManualSubcategoria{}, &models.ManualDocumento{}, &models.ManualActualizacion{}); err != nil {
+	if err := DB.AutoMigrate(&models.Agencia{}, &models.Usuario{}, &models.Puesto{}, &models.Categoria{}, &models.Subcategoria{}, &models.Asociado{}, &models.Documento{}, &models.IndicePagina{}, &models.ManualCategoria{}, &models.ManualSubcategoria{}, &models.ManualCarpeta{}, &models.ManualDocumento{}, &models.ManualActualizacion{}); err != nil {
 		log.Printf("[ERROR] Error en auto-migración: %v", err)
+	}
+	
+	// Quitar el NOT NULL de la columna obsoleta manual_subcategoria_id en manual_documentos
+	if err := DB.Exec("ALTER TABLE manual_documentos ALTER COLUMN manual_subcategoria_id DROP NOT NULL").Error; err != nil {
+		log.Printf("[DB-WARN] No se pudo alterar columna obsoleta manual_subcategoria_id: %v", err)
 	}
 
 	fmt.Printf("Conexión a la base de datos establecida correctamente (%s).\n", driver)

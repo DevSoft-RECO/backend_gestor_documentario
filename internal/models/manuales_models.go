@@ -21,16 +21,29 @@ type ManualSubcategoria struct {
 	Nombre            string            `gorm:"size:150;not null" json:"nombre"`
 	Estado            bool              `gorm:"default:true" json:"estado"`
 	Categoria         ManualCategoria   `gorm:"foreignKey:ManualCategoriaID" json:"categoria"`
-	Documentos        []ManualDocumento `gorm:"foreignKey:ManualSubcategoriaID" json:"documentos"`
+	Carpetas          []ManualCarpeta   `gorm:"foreignKey:ManualSubcategoriaID" json:"carpetas"`
 }
 
 func (ManualSubcategoria) TableName() string {
 	return "manual_subcategorias"
 }
 
+type ManualCarpeta struct {
+	ID                   uint              `gorm:"primaryKey" json:"id"`
+	ManualSubcategoriaID uint              `gorm:"not null" json:"manual_subcategoria_id"`
+	Nombre               string            `gorm:"size:150;not null" json:"nombre"`
+	Estado               bool              `gorm:"default:true" json:"estado"`
+	Subcategoria         ManualSubcategoria `gorm:"foreignKey:ManualSubcategoriaID" json:"subcategoria"`
+	Documentos           []ManualDocumento `gorm:"foreignKey:ManualCarpetaID" json:"documentos"`
+}
+
+func (ManualCarpeta) TableName() string {
+	return "manual_carpetas"
+}
+
 type ManualDocumento struct {
 	ID                   uint               `gorm:"primaryKey" json:"id"`
-	ManualSubcategoriaID uint               `gorm:"not null" json:"manual_subcategoria_id"`
+	ManualCarpetaID      *uint              `json:"manual_carpeta_id"`
 	Titulo               string             `gorm:"size:255;not null" json:"titulo"`
 	FilePath             string             `gorm:"type:text;not null" json:"file_path"`
 	TotalPaginas         int                `gorm:"default:0" json:"total_paginas"`
@@ -42,7 +55,7 @@ type ManualDocumento struct {
 	FechaVigencia        *time.Time         `json:"fecha_vigencia"`
 
 	// Relaciones
-	Subcategoria ManualSubcategoria `gorm:"foreignKey:ManualSubcategoriaID" json:"subcategoria"`
+	Carpeta      ManualCarpeta      `gorm:"foreignKey:ManualCarpetaID" json:"carpeta"`
 	Usuario      Usuario            `gorm:"foreignKey:UsuarioID" json:"usuario"`
 
 	// Relación muchos a muchos con Puestos para control de lectura granular

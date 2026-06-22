@@ -62,6 +62,8 @@ func SetupRoutes(app *fiber.App) {
 	manualesGroup.Put("/categorias/:id", manuales.UpdateCategoria)
 	manualesGroup.Post("/subcategorias", manuales.CreateSubcategoria)
 	manualesGroup.Put("/subcategorias/:id", manuales.UpdateSubcategoria)
+	manualesGroup.Post("/carpetas", manuales.CreateCarpeta)
+	manualesGroup.Put("/carpetas/:id", manuales.UpdateCarpeta)
 	manualesGroup.Post("/documentos/upload", manuales.SubirManual)
 	manualesGroup.Put("/documentos/:id", manuales.UpdateManual)
 	manualesGroup.Delete("/documentos/:id", manuales.DeleteManual)

@@ -153,12 +153,14 @@ func GetAdminCategorias(c *fiber.Ctx) error {
 	}
 
 	var categorias []models.ManualCategoria
-	// Precargamos la jerarquía completa
+	// Precargamos la jerarquía completa de 3 niveles: Categorias (Gavetas) -> Subcategorias (Portafolios) -> Carpetas -> Documentos -> Relaciones
 	err := db.DB.Preload("Subcategorias", func(db *gorm.DB) *gorm.DB {
 		return db.Order("nombre ASC")
-	}).Preload("Subcategorias.Documentos", func(db *gorm.DB) *gorm.DB {
+	}).Preload("Subcategorias.Carpetas", func(db *gorm.DB) *gorm.DB {
+		return db.Order("nombre ASC")
+	}).Preload("Subcategorias.Carpetas.Documentos", func(db *gorm.DB) *gorm.DB {
 		return db.Preload("PuestosAutorizados").Order("titulo ASC")
-	}).Preload("Subcategorias.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
+	}).Preload("Subcategorias.Carpetas.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
 		return db.Order("id ASC")
 	}).Order("nombre ASC").Find(&categorias).Error
 
@@ -267,6 +269,56 @@ func UpdateSubcategoria(c *fiber.Ctx) error {
 	return c.JSON(subcategoria)
 }
 
+// === CONTROLADORES DE CARPETAS (ADMIN) ===
+
+func CreateCarpeta(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
+	}
+
+	carpeta := new(models.ManualCarpeta)
+	if err := c.BodyParser(carpeta); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
+	}
+
+	if carpeta.ManualSubcategoriaID == 0 || strings.TrimSpace(carpeta.Nombre) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "SubcategoriaID (Portafolio) y Nombre son obligatorios"})
+	}
+
+	if err := db.DB.Create(carpeta).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al crear la carpeta"})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(carpeta)
+}
+
+func UpdateCarpeta(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
+	}
+
+	id := c.Params("id")
+	carpeta := new(models.ManualCarpeta)
+
+	if err := db.DB.First(carpeta, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Carpeta no encontrada"})
+	}
+
+	if err := c.BodyParser(carpeta); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos"})
+	}
+
+	if carpeta.ManualSubcategoriaID == 0 || strings.TrimSpace(carpeta.Nombre) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "SubcategoriaID (Portafolio) y Nombre son obligatorios"})
+	}
+
+	if err := db.DB.Save(carpeta).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar la carpeta"})
+	}
+
+	return c.JSON(carpeta)
+}
+
 // === CONTROLADORES DE DOCUMENTOS (ADMIN & READERS) ===
 
 func SubirManual(c *fiber.Ctx) error {
@@ -274,16 +326,16 @@ func SubirManual(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
 	}
 
-	subcategoriaIDStr := c.FormValue("subcategoria_id")
+	carpetaIDStr := c.FormValue("manual_carpeta_id")
 	titulo := c.FormValue("titulo")
 
-	if subcategoriaIDStr == "" || strings.TrimSpace(titulo) == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Faltan parámetros obligatorios (subcategoria_id, titulo)"})
+	if carpetaIDStr == "" || strings.TrimSpace(titulo) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Faltan parámetros obligatorios (manual_carpeta_id, titulo)"})
 	}
 
-	subcategoriaID, err := strconv.ParseUint(subcategoriaIDStr, 10, 32)
+	carpetaID, err := strconv.ParseUint(carpetaIDStr, 10, 32)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de subcategoría inválido"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de carpeta inválido"})
 	}
 
 	file, err := c.FormFile("documento")
@@ -332,7 +384,7 @@ func SubirManual(c *fiber.Ctx) error {
 	// Guardar en Google Cloud Storage
 	timestamp := time.Now().UnixNano()
 	fileNameCleaned := strings.ToLower(strings.ReplaceAll(titulo, " ", "_"))
-	gcsObjectName := fmt.Sprintf("App_Manuales/subcat_%d/%d_%s.pdf", subcategoriaID, timestamp, fileNameCleaned)
+	gcsObjectName := fmt.Sprintf("App_Manuales/carpeta_%d/%d_%s.pdf", carpetaID, timestamp, fileNameCleaned)
 
 	if err := gcs.SubirArchivo(c.UserContext(), gcsObjectName, fToUpload); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir manual a GCS", "detalle": err.Error()})
@@ -356,20 +408,24 @@ func SubirManual(c *fiber.Ctx) error {
 		}
 	}
 
+	carpetaIDVal := uint(carpetaID)
 	// Crear el registro del manual
 	manual := models.ManualDocumento{
-		ManualSubcategoriaID: uint(subcategoriaID),
-		Titulo:               titulo,
-		FilePath:             gcsObjectName,
-		TotalPaginas:         totalPaginas,
-		UsuarioID:            usuarioID,
-		NumeroActa:           numeroActa,
-		FechaAprobacion:      fechaAprobacion,
-		FechaVigencia:        fechaVigencia,
+		ManualCarpetaID: &carpetaIDVal,
+		Titulo:          titulo,
+		FilePath:        gcsObjectName,
+		TotalPaginas:    totalPaginas,
+		UsuarioID:       usuarioID,
+		NumeroActa:      numeroActa,
+		FechaAprobacion: fechaAprobacion,
+		FechaVigencia:   fechaVigencia,
 	}
 
 	if err := db.DB.Create(&manual).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar manual en base de datos"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Error al guardar manual en base de datos",
+			"detalle": err.Error(),
+		})
 	}
 
 	// Procesar los puestos autorizados
@@ -392,7 +448,7 @@ func SubirManual(c *fiber.Ctx) error {
 	}
 
 	// Recargar datos
-	db.DB.Preload("Subcategoria").Preload("PuestosAutorizados").First(&manual, manual.ID)
+	db.DB.Preload("Carpeta").Preload("PuestosAutorizados").First(&manual, manual.ID)
 
 	return c.Status(fiber.StatusCreated).JSON(manual)
 }
@@ -410,14 +466,15 @@ func UpdateManual(c *fiber.Ctx) error {
 	}
 
 	titulo := c.FormValue("titulo")
-	subcategoriaIDStr := c.FormValue("subcategoria_id")
+	carpetaIDStr := c.FormValue("manual_carpeta_id")
 
 	if titulo != "" {
 		manual.Titulo = titulo
 	}
-	if subcategoriaIDStr != "" {
-		if subID, err := strconv.ParseUint(subcategoriaIDStr, 10, 32); err == nil {
-			manual.ManualSubcategoriaID = uint(subID)
+	if carpetaIDStr != "" {
+		if carpID, err := strconv.ParseUint(carpetaIDStr, 10, 32); err == nil {
+			carpIDVal := uint(carpID)
+			manual.ManualCarpetaID = &carpIDVal
 		}
 	}
 
@@ -490,7 +547,7 @@ func UpdateManual(c *fiber.Ctx) error {
 		db.DB.Model(manual).Association("PuestosAutorizados").Clear()
 	}
 
-	db.DB.Preload("Subcategoria").Preload("PuestosAutorizados").First(manual, manual.ID)
+	db.DB.Preload("Carpeta").Preload("PuestosAutorizados").First(manual, manual.ID)
 
 	return c.JSON(manual)
 }
@@ -535,13 +592,14 @@ func GetBibliotecaManuales(c *fiber.Ctx) error {
 	// Consulta optimizada evitando N+1.
 	// Si es administrador general, tiene visualización total de todos los manuales activos o inactivos.
 	// Si es un lector estándar, solo pre-cargamos los manuales donde su puesto está autorizado.
-	query := db.DB.Preload("Subcategorias", "estado = ?", true)
+	query := db.DB.Preload("Subcategorias", "estado = ?", true).
+		Preload("Subcategorias.Carpetas", "estado = ?", true)
 
 	if isAdmin {
 		// Admin ve todo
-		err := query.Preload("Subcategorias.Documentos", func(db *gorm.DB) *gorm.DB {
+		err := query.Preload("Subcategorias.Carpetas.Documentos", func(db *gorm.DB) *gorm.DB {
 			return db.Preload("PuestosAutorizados").Order("titulo ASC")
-		}).Preload("Subcategorias.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
+		}).Preload("Subcategorias.Carpetas.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
 			return db.Order("id ASC")
 		}).Order("nombre ASC").Find(&categorias).Error
 
@@ -551,11 +609,11 @@ func GetBibliotecaManuales(c *fiber.Ctx) error {
 	} else {
 		// Lector regular - Restringido por Puesto
 		// Precargamos los documentos autorizados con un query join ágil
-		err := query.Preload("Subcategorias.Documentos", func(db *gorm.DB) *gorm.DB {
+		err := query.Preload("Subcategorias.Carpetas.Documentos", func(db *gorm.DB) *gorm.DB {
 			return db.Joins("JOIN manual_documento_puestos mdp ON mdp.manual_documento_id = manual_documentos.id").
 				Where("mdp.puesto_id = ?", puestoID).
 				Order("titulo ASC")
-		}).Preload("Subcategorias.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
+		}).Preload("Subcategorias.Carpetas.Documentos.Actualizaciones", func(db *gorm.DB) *gorm.DB {
 			return db.Order("id ASC")
 		}).Where("estado = ?", true).Order("nombre ASC").Find(&categorias).Error
 
@@ -569,7 +627,14 @@ func GetBibliotecaManuales(c *fiber.Ctx) error {
 		for _, cat := range categorias {
 			var subcategoriasFiltradas []models.ManualSubcategoria
 			for _, sub := range cat.Subcategorias {
-				if len(sub.Documentos) > 0 {
+				var carpetasFiltradas []models.ManualCarpeta
+				for _, carp := range sub.Carpetas {
+					if len(carp.Documentos) > 0 {
+						carpetasFiltradas = append(carpetasFiltradas, carp)
+					}
+				}
+				if len(carpetasFiltradas) > 0 {
+					sub.Carpetas = carpetasFiltradas
 					subcategoriasFiltradas = append(subcategoriasFiltradas, sub)
 				}
 			}
@@ -720,7 +785,7 @@ func SubirActualizacion(c *fiber.Ctx) error {
 	// Subir nuevo manual completo consolidado
 	timestamp := time.Now().UnixNano()
 	fileNameCleaned := strings.ToLower(strings.ReplaceAll(manual.Titulo, " ", "_"))
-	gcsObjectNameOriginal := fmt.Sprintf("App_Manuales/subcat_%d/%d_%s.pdf", manual.ManualSubcategoriaID, timestamp, fileNameCleaned)
+	gcsObjectNameOriginal := fmt.Sprintf("App_Manuales/carpeta_%d/%d_%s.pdf", manual.ManualCarpetaID, timestamp, fileNameCleaned)
 
 	if err := gcs.SubirArchivo(c.UserContext(), gcsObjectNameOriginal, fOriginalToUpload); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir el nuevo manual completo a GCS", "detalle": err.Error()})
