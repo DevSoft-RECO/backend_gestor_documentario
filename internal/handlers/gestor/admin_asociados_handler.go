@@ -69,23 +69,57 @@ type AdminAsociadoResponse struct {
 	TotalDocumentos int64 `json:"total_documentos"`
 }
 
-// GetAdminAsociados obtiene todos los asociados con su conteo de documentos vinculados
 func GetAdminAsociados(c *fiber.Ctx) error {
 	if !isUserSuperAdmin(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Super Administradores"})
 	}
 
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "10")
+	search := c.Query("search", "")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+
+	var total int64
+	query := db.DB.Model(&models.Asociado{})
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		query = query.Where("nombre_completo LIKE ? OR dpi LIKE ? OR codigo_cliente LIKE ?", searchPattern, searchPattern, searchPattern)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar asociados"})
+	}
+
 	var asociados []AdminAsociadoResponse
-	err := db.DB.Model(&models.Asociado{}).
+	err = query.
 		Select("asociados.*, (SELECT COUNT(*) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_documentos").
 		Order("nombre_completo ASC").
+		Limit(limit).
+		Offset(offset).
 		Scan(&asociados).Error
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al recuperar asociados"})
 	}
 
-	return c.JSON(asociados)
+	return c.JSON(fiber.Map{
+		"asociados": asociados,
+		"total":     total,
+		"page":      page,
+		"limit":     limit,
+	})
 }
 
 // DeleteAdminAsociado elimina a un asociado, su portafolio, sus documentos e índices vinculados y borra archivos en GCS
