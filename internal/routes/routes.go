@@ -57,6 +57,7 @@ func SetupRoutes(app *fiber.App) {
 	manualesGroup.Get("/biblioteca", manuales.GetBibliotecaManuales)
 	manualesGroup.Get("/documentos/:id/url", manuales.GenerarURLManual)
 	// Admin (Super Admin o permiso admin_biblioteca)
+	manualesGroup.Get("/admin/documentos", manuales.GetAdminManuales)
 	manualesGroup.Get("/admin/categorias", manuales.GetAdminCategorias)
 	manualesGroup.Post("/categorias", manuales.CreateCategoria)
 	manualesGroup.Put("/categorias/:id", manuales.UpdateCategoria)

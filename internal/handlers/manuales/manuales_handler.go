@@ -937,3 +937,58 @@ func GenerarURLActualizacion(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"url": url})
 }
+
+func GetAdminManuales(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
+	}
+
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "10")
+	search := c.Query("search", "")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 {
+		limit = 10
+	}
+
+	offset := (page - 1) * limit
+
+	var total int64
+	var documentos []models.ManualDocumento
+
+	query := db.DB.Model(&models.ManualDocumento{})
+
+	if search != "" {
+		query = query.Where("titulo LIKE ?", "%"+search+"%")
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar manuales"})
+	}
+
+	err = query.
+		Preload("PuestosAutorizados").
+		Preload("Actualizaciones").
+		Preload("Carpeta.Subcategoria.Categoria").
+		Order("id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&documentos).Error
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener manuales"})
+	}
+
+	return c.JSON(fiber.Map{
+		"documentos": documentos,
+		"total":      total,
+		"page":       page,
+		"limit":      limit,
+	})
+}
