@@ -95,14 +95,14 @@ func GetAdminAsociados(c *fiber.Ctx) error {
 
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		query = query.Where("nombre_completo LIKE ? OR dpi LIKE ? OR codigo_cliente LIKE ?", searchPattern, searchPattern, searchPattern)
+		query = query.Where("LOWER(nombre_completo) LIKE LOWER(?) OR dpi LIKE ? OR codigo_cliente LIKE ?", searchPattern, searchPattern, searchPattern)
 	}
 
 	if err := query.Count(&total).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar asociados"})
 	}
 
-	var asociados []AdminAsociadoResponse
+	asociados := []AdminAsociadoResponse{}
 	err = query.
 		Select("asociados.*, (SELECT COUNT(*) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_documentos").
 		Order("nombre_completo ASC").
