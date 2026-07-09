@@ -171,6 +171,11 @@ func InsertarPaginas(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempOutPath)
 
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempOutPath, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF reconstruido %s: %v\n", tempOutPath, errOpt)
+	}
+
 	tx := db.DB.Begin()
 
 	// 1. Físico (Subir a GCS)
@@ -336,6 +341,11 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempOutPath)
 
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempOutPath, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF reconstruido %s: %v\n", tempOutPath, errOpt)
+	}
+
 	tx := db.DB.Begin()
 
 	// 1. Físico (Subir a GCS)
@@ -455,6 +465,11 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error reconstruyendo PDF", "detalle": err.Error()})
 	}
 	defer os.Remove(tempOutPath)
+
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempOutPath, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF reconstruido %s: %v\n", tempOutPath, errOpt)
+	}
 
 	tx := db.DB.Begin()
 

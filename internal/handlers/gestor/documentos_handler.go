@@ -191,6 +191,11 @@ func SubirDocumento(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF subido no es válido o está corrupto"})
 	}
 
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempFilePath, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF temporal %s: %v\n", tempFilePath, errOpt)
+	}
+
 	// Abrir el archivo temporal para subirlo a GCS
 	fToUpload, err := os.Open(tempFilePath)
 	if err != nil {

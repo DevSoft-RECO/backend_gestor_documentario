@@ -374,6 +374,11 @@ func SubirManual(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF subido no es válido o está corrupto"})
 	}
 
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempFilePath, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF manual temporal %s: %v\n", tempFilePath, errOpt)
+	}
+
 	// Abrir archivo temporal
 	fToUpload, err := os.Open(tempFilePath)
 	if err != nil {
@@ -511,6 +516,12 @@ func UpdateManual(c *fiber.Ctx) error {
 
 			if c.SaveFile(file, tempFilePath) == nil {
 				totalPaginas, countErr := api.PageCountFile(tempFilePath)
+				if countErr == nil {
+					// Optimizar/Comprimir PDF antes de subirlo
+					if errOpt := api.OptimizeFile(tempFilePath, "", nil); errOpt != nil {
+						fmt.Printf("[WARN] No se pudo optimizar el PDF manual en update temporal %s: %v\n", tempFilePath, errOpt)
+					}
+				}
 				fToUpload, openErr := os.Open(tempFilePath)
 				if countErr == nil && openErr == nil {
 					defer fToUpload.Close()
@@ -769,6 +780,11 @@ func SubirActualizacion(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF del manual completo no es válido o está corrupto"})
 	}
 
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempFilePathOrig, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF original temporal %s: %v\n", tempFilePathOrig, errOpt)
+	}
+
 	fOriginalToUpload, err := os.Open(tempFilePathOrig)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al abrir manual completo para subir"})
@@ -836,6 +852,11 @@ func SubirActualizacion(c *fiber.Ctx) error {
 	totalPaginasChanges, err := api.PageCountFile(tempFilePathChanges)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF de hojas de cambio no es válido o está corrupto"})
+	}
+
+	// Optimizar/Comprimir PDF antes de subirlo
+	if errOpt := api.OptimizeFile(tempFilePathChanges, "", nil); errOpt != nil {
+		fmt.Printf("[WARN] No se pudo optimizar el PDF de cambios temporal %s: %v\n", tempFilePathChanges, errOpt)
 	}
 
 	fChangesToUpload, err := os.Open(tempFilePathChanges)
