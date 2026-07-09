@@ -12,6 +12,7 @@ import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -171,9 +172,13 @@ func InsertarPaginas(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempOutPath)
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempOutPath, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF reconstruido %s: %v\n", tempOutPath, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPathComp := tempOutPath + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempOutPath, tempOutPathComp); errComp == nil {
+		tempOutPath = tempOutPathComp
+		defer os.Remove(tempOutPathComp)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF reconstruido con Ghostscript %s: %v\n", tempOutPath, errComp)
 	}
 
 	tx := db.DB.Begin()
@@ -341,9 +346,13 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempOutPath)
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempOutPath, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF reconstruido %s: %v\n", tempOutPath, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPathComp := tempOutPath + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempOutPath, tempOutPathComp); errComp == nil {
+		tempOutPath = tempOutPathComp
+		defer os.Remove(tempOutPathComp)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF reconstruido con Ghostscript %s: %v\n", tempOutPath, errComp)
 	}
 
 	tx := db.DB.Begin()
@@ -466,9 +475,13 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 	defer os.Remove(tempOutPath)
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempOutPath, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF reconstruido %s: %v\n", tempOutPath, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPathComp := tempOutPath + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempOutPath, tempOutPathComp); errComp == nil {
+		tempOutPath = tempOutPathComp
+		defer os.Remove(tempOutPathComp)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF reconstruido con Ghostscript %s: %v\n", tempOutPath, errComp)
 	}
 
 	tx := db.DB.Begin()

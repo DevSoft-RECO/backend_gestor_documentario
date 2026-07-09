@@ -11,6 +11,7 @@ import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -191,9 +192,13 @@ func SubirDocumento(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF subido no es válido o está corrupto"})
 	}
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempFilePath, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF temporal %s: %v\n", tempFilePath, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPath := tempFilePath + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempFilePath, tempOutPath); errComp == nil {
+		tempFilePath = tempOutPath
+		defer os.Remove(tempOutPath)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF con Ghostscript %s: %v\n", tempFilePath, errComp)
 	}
 
 	// Abrir el archivo temporal para subirlo a GCS

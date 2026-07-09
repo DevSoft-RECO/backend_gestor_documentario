@@ -11,6 +11,7 @@ import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -374,9 +375,13 @@ func SubirManual(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF subido no es válido o está corrupto"})
 	}
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempFilePath, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF manual temporal %s: %v\n", tempFilePath, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPath := tempFilePath + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempFilePath, tempOutPath); errComp == nil {
+		tempFilePath = tempOutPath
+		defer os.Remove(tempOutPath)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF con Ghostscript %s: %v\n", tempFilePath, errComp)
 	}
 
 	// Abrir archivo temporal
@@ -517,9 +522,13 @@ func UpdateManual(c *fiber.Ctx) error {
 			if c.SaveFile(file, tempFilePath) == nil {
 				totalPaginas, countErr := api.PageCountFile(tempFilePath)
 				if countErr == nil {
-					// Optimizar/Comprimir PDF antes de subirlo
-					if errOpt := api.OptimizeFile(tempFilePath, "", nil); errOpt != nil {
-						fmt.Printf("[WARN] No se pudo optimizar el PDF manual en update temporal %s: %v\n", tempFilePath, errOpt)
+					// Comprimir PDF antes de subirlo con Ghostscript
+					tempOutPath := tempFilePath + ".compressed.pdf"
+					if errComp := utils.CompressPDF(c.UserContext(), tempFilePath, tempOutPath); errComp == nil {
+						tempFilePath = tempOutPath
+						defer os.Remove(tempOutPath)
+					} else {
+						fmt.Printf("[WARN] No se pudo comprimir el PDF con Ghostscript %s: %v\n", tempFilePath, errComp)
 					}
 				}
 				fToUpload, openErr := os.Open(tempFilePath)
@@ -780,9 +789,13 @@ func SubirActualizacion(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF del manual completo no es válido o está corrupto"})
 	}
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempFilePathOrig, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF original temporal %s: %v\n", tempFilePathOrig, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPathOrig := tempFilePathOrig + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempFilePathOrig, tempOutPathOrig); errComp == nil {
+		tempFilePathOrig = tempOutPathOrig
+		defer os.Remove(tempOutPathOrig)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF original con Ghostscript %s: %v\n", tempFilePathOrig, errComp)
 	}
 
 	fOriginalToUpload, err := os.Open(tempFilePathOrig)
@@ -854,9 +867,13 @@ func SubirActualizacion(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "El PDF de hojas de cambio no es válido o está corrupto"})
 	}
 
-	// Optimizar/Comprimir PDF antes de subirlo
-	if errOpt := api.OptimizeFile(tempFilePathChanges, "", nil); errOpt != nil {
-		fmt.Printf("[WARN] No se pudo optimizar el PDF de cambios temporal %s: %v\n", tempFilePathChanges, errOpt)
+	// Comprimir PDF antes de subirlo con Ghostscript
+	tempOutPathChanges := tempFilePathChanges + ".compressed.pdf"
+	if errComp := utils.CompressPDF(c.UserContext(), tempFilePathChanges, tempOutPathChanges); errComp == nil {
+		tempFilePathChanges = tempOutPathChanges
+		defer os.Remove(tempOutPathChanges)
+	} else {
+		fmt.Printf("[WARN] No se pudo comprimir el PDF de cambios con Ghostscript %s: %v\n", tempFilePathChanges, errComp)
 	}
 
 	fChangesToUpload, err := os.Open(tempFilePathChanges)
