@@ -519,3 +519,58 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	tx.Commit()
 	return c.JSON(fiber.Map{"message": "Página eliminada y cascada actualizada"})
 }
+
+// ActualizarIndice permite modificar la etiqueta, número de documento y fecha de vencimiento de un índice.
+func ActualizarIndice(c *fiber.Ctx) error {
+	indiceIDStr := c.Params("id")
+	indiceID, err := strconv.ParseUint(indiceIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de índice inválido"})
+	}
+
+	var input struct {
+		Etiqueta         string  `json:"etiqueta"`
+		NumeroDocumento  *string `json:"numero_documento"`
+		FechaVencimiento *string `json:"fecha_vencimiento"`
+	}
+
+	if err := c.BodyParser(&input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cuerpo de solicitud inválido"})
+	}
+
+	if strings.TrimSpace(input.Etiqueta) == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "La etiqueta no puede estar vacía"})
+	}
+
+	var indice models.IndicePagina
+	if err := db.DB.First(&indice, uint(indiceID)).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Índice no encontrado"})
+	}
+
+	indice.Etiqueta = strings.TrimSpace(input.Etiqueta)
+	
+	if input.NumeroDocumento != nil && strings.TrimSpace(*input.NumeroDocumento) != "" {
+		trimmedNum := strings.TrimSpace(*input.NumeroDocumento)
+		indice.NumeroDocumento = &trimmedNum
+	} else {
+		indice.NumeroDocumento = nil
+	}
+
+	if input.FechaVencimiento != nil && strings.TrimSpace(*input.FechaVencimiento) != "" {
+		dateStr := strings.TrimSpace(*input.FechaVencimiento)
+		if parsedDate, err := time.Parse("2006-01-02", dateStr); err == nil {
+			indice.FechaVencimiento = &parsedDate
+		} else {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Fecha de vencimiento con formato inválido (debe ser AAAA-MM-DD)"})
+		}
+	} else {
+		indice.FechaVencimiento = nil
+	}
+
+	if err := db.DB.Save(&indice).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar el índice"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Índice actualizado exitosamente", "indice": indice})
+}
+
