@@ -42,6 +42,7 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Get("/asociados/:asociado_id/expediente", gestor.ObtenerExpediente)
 	gestorGroup.Post("/documentos/upload", gestor.SubirDocumento)
 	gestorGroup.Get("/documentos/:documento_id/url", gestor.GenerarURLDocumento)
+	gestorGroup.Delete("/documentos/:documento_id/eliminar-completo", gestor.EliminarDocumentoCompleto)
 
 	// Operaciones Quirúrgicas (Índices y Manipulación por Página)
 	gestorGroup.Get("/documentos/:documento_id/indices", gestor.ObtenerIndices)

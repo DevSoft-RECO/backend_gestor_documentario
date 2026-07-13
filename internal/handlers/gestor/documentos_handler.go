@@ -1,6 +1,7 @@
 package gestor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -383,3 +384,58 @@ func GenerarURLDocumento(c *fiber.Ctx) error {
 		"url": url,
 	})
 }
+
+// EliminarDocumentoCompleto elimina un documento (carpeta de subcategoría), sus índices de páginas y su archivo físico de GCS
+// DELETE /api/gestor/documentos/:documento_id/eliminar-completo
+func EliminarDocumentoCompleto(c *fiber.Ctx) error {
+	if !isUserSuperAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Super Administradores"})
+	}
+
+	docIDStr := c.Params("documento_id")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de documento inválido"})
+	}
+
+	// 1. Buscar el documento
+	var documento models.Documento
+	if err := db.DB.First(&documento, docID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
+	}
+
+	// 2. Transacción de base de datos
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al iniciar la transacción"})
+	}
+
+	// Eliminar los índices de páginas relacionados con el documento
+	if err := tx.Where("documento_id = ?", documento.ID).Delete(&models.IndicePagina{}).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar índices de páginas"})
+	}
+
+	// Eliminar el registro de documento
+	if err := tx.Delete(&documento).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar registro de documento"})
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al confirmar la eliminación"})
+	}
+
+	// 3. Eliminar el archivo físico de GCS en segundo plano
+	if documento.FilePath != "" {
+		go func(filePath string) {
+			ctx := context.Background()
+			_ = gcs.EliminarArchivo(ctx, filePath)
+		}(documento.FilePath)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Documento eliminado correctamente del expediente, índices y archivo físico depurados",
+	})
+}
+
