@@ -172,7 +172,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 	}
 
 	fileName := fmt.Sprintf("doc_subcat_%d_%s.pdf", subcategoriaID, identificador)
-	gcsObjectName := fmt.Sprintf("App_Documentos/asociado_%d/%s", asociadoID, fileName)
+	gcsObjectName := fmt.Sprintf("sysdocpruebas/asociado_%d/%s", asociadoID, fileName)
 
 	// Crear archivo temporal local para contar páginas
 	tempFile, err := os.CreateTemp("", "upload_gcs_*.pdf")
