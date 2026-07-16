@@ -4,31 +4,37 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 )
 
-// isScannedPDF detecta si un PDF es probablemente escaneado (sin fuentes en el primer megabyte)
-func isScannedPDF(filePath string) bool {
-	file, err := os.Open(filePath)
-	if err != nil {
+// isScannedPDF detecta si un PDF es probablemente escaneado (si no contiene texto alfanumérico en su primera página)
+func isScannedPDF(ctx context.Context, executable, filePath string) bool {
+	cmd := exec.CommandContext(ctx, executable,
+		"-sDEVICE=txtwrite",
+		"-dFirstPage=1",
+		"-dLastPage=1",
+		"-dNOPAUSE",
+		"-dBATCH",
+		"-dQUIET",
+		"-sOutputFile=-",
+		filePath,
+	)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
 		return true // Por seguridad, asumimos escaneado si hay error
 	}
-	defer file.Close()
 
-	// Leer el primer megabyte
-	buffer := make([]byte, 1024*1024)
-	n, _ := file.Read(buffer)
-	if n == 0 {
-		return true
-	}
-
-	content := string(buffer[:n])
-	// Comprobar si tiene indicaciones de texto o fuentes digitalizadas
-	if strings.Contains(content, "/Font") || strings.Contains(content, "/Type /Font") || strings.Contains(content, "/Type/Font") || strings.Contains(content, "BT") {
-		return false // PDF Digital con fuentes/texto
+	text := strings.TrimSpace(stdout.String())
+	// Comprobar si contiene caracteres alfanuméricos legibles
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return false // PDF Digital (tiene texto nativo legible)
+		}
 	}
 
 	return true // PDF Escaneado (solo imágenes)
@@ -43,9 +49,9 @@ func CompressPDF(ctx context.Context, inputPath, outputPath string) error {
 	}
 
 	// Determinar el DPI según si el documento es digital o escaneado
-	targetDPI := "130" // Para PDFs digitales (texto nativo)
-	if isScannedPDF(inputPath) {
-		targetDPI = "200" // Mayor calidad/resolución para PDFs escaneados (imágenes legibles)
+	targetDPI := "100" // Para PDFs digitales (texto nativo)
+	if isScannedPDF(ctx, executable, inputPath) {
+		targetDPI = "170" // Mayor calidad/resolución para PDFs escaneados (imágenes legibles)
 	}
 
 	cmd := exec.CommandContext(ctx, executable,
