@@ -18,7 +18,7 @@ func CompressPDF(ctx context.Context, inputPath, outputPath string) error {
 
 	// Calidad de compresión personalizada (DPI):
 	// Ajusta este valor para afinar la relación tamaño/legibilidad (ej. 100, 110, 120)
-	targetDPI := "150"
+	targetDPI := "180"
 
 	cmd := exec.CommandContext(ctx, executable,
 		"-sDEVICE=pdfwrite",
