@@ -522,32 +522,6 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 
 // ActualizarIndice permite modificar la etiqueta, número de documento y fecha de vencimiento de un índice.
 func ActualizarIndice(c *fiber.Ctx) error {
-	// === VERIFICACIÓN DE ROL: SUPER ADMIN ===
-	usuarioID := getUsuarioIDFromToken(c)
-	isSuperAdmin := false
-	if claims, ok := c.Locals("userClaims").(jwt.MapClaims); ok {
-		if rolesRaw, ok := claims["roles"]; ok {
-			if s, ok := rolesRaw.(string); ok && s == "Super Admin" { isSuperAdmin = true }
-			if ss, ok := rolesRaw.([]interface{}); ok {
-				for _, r := range ss { if r == "Super Admin" { isSuperAdmin = true; break } }
-			}
-		}
-	}
-
-	var userLocal models.Usuario
-	db.DB.First(&userLocal, usuarioID)
-	isSuperAdminDB := false
-	if userLocal.Roles != nil {
-		var roles []string
-		if err := json.Unmarshal([]byte(*userLocal.Roles), &roles); err == nil {
-			for _, r := range roles { if r == "Super Admin" { isSuperAdminDB = true; break } }
-		} else if strings.Contains(*userLocal.Roles, "Super Admin") { isSuperAdminDB = true }
-	}
-
-	if !isSuperAdmin && !isSuperAdminDB {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No autorizado: Se requiere el rol de Super Admin"})
-	}
-
 	indiceIDStr := c.Params("id")
 	indiceID, err := strconv.ParseUint(indiceIDStr, 10, 32)
 	if err != nil {
