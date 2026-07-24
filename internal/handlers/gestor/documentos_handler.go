@@ -320,14 +320,14 @@ func GenerarURLDocumento(c *fiber.Ctx) error {
 			case []interface{}:
 				for _, role := range r {
 					if s, ok := role.(string); ok {
-						if s == "Super Admin" || s == "Administrador" || s == "Admin" {
+						if s == "Super Admin" || s == "Administrador" || s == "Admin" || s == "Auditor" {
 							isSuperAdmin = true
 							break
 						}
 					}
 				}
 			case string:
-				if r == "Super Admin" || r == "Administrador" || r == "Admin" {
+				if r == "Super Admin" || r == "Administrador" || r == "Admin" || r == "Auditor" {
 					isSuperAdmin = true
 				}
 			}
@@ -341,12 +341,12 @@ func GenerarURLDocumento(c *fiber.Ctx) error {
 			var roles []string
 			if err := json.Unmarshal([]byte(*userLocal.Roles), &roles); err == nil {
 				for _, r := range roles {
-					if r == "Super Admin" {
+					if r == "Super Admin" || r == "Auditor" || r == "Administrador" {
 						isSuperAdminDB = true
 						break
 					}
 				}
-			} else if strings.Contains(*userLocal.Roles, "Super Admin") {
+			} else if strings.Contains(*userLocal.Roles, "Super Admin") || strings.Contains(*userLocal.Roles, "Auditor") || strings.Contains(*userLocal.Roles, "Administrador") {
 				isSuperAdminDB = true
 			}
 		}
