@@ -717,6 +717,14 @@ func DescargarDocumentoPapelera(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al generar enlace de descarga", "detalle": err.Error()})
 	}
 
+	// Registrar descarga
+	now := time.Now()
+	doc.Descargado = true
+	doc.FechaDescarga = &now
+	if err := db.DB.Save(&doc).Error; err != nil {
+		fmt.Printf("[WARN] No se pudo guardar estado de descarga en papelera: %v\n", err)
+	}
+
 	return c.JSON(fiber.Map{
 		"url": url,
 	})

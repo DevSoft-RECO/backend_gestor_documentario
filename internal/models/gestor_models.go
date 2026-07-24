@@ -108,6 +108,8 @@ type DocumentoEliminado struct {
 	UsuarioAsignadoID   *uint      `json:"usuario_asignado_id,omitempty"`
 	FechaEliminacion    time.Time  `gorm:"autoCreateTime" json:"fecha_eliminacion"`
 	FechaAsignacion     *time.Time `json:"fecha_asignacion,omitempty"`
+	Descargado          bool       `gorm:"default:false" json:"descargado"`
+	FechaDescarga       *time.Time `json:"fecha_descarga,omitempty"`
 
 	// Relaciones
 	UsuarioElimino  Usuario   `gorm:"foreignKey:UsuarioEliminoID" json:"usuario_elimino"`
