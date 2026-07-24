@@ -439,3 +439,338 @@ func EliminarDocumentoCompleto(c *fiber.Ctx) error {
 	})
 }
 
+// EliminarDocumentoPapelera realiza un soft delete moviendo el archivo en GCS a la papelera y registrándolo en documentos_eliminados
+// DELETE /api/gestor/documentos/:documento_id/eliminar-papelera
+func EliminarDocumentoPapelera(c *fiber.Ctx) error {
+	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
+	var usuarioID uint = 1
+	if ok {
+		if sub, ok := claims["sub"]; ok {
+			if idFloat, ok := sub.(float64); ok {
+				usuarioID = uint(idFloat)
+			} else if idStr, ok := sub.(string); ok {
+				if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+					usuarioID = uint(parsed)
+				}
+			}
+		}
+	}
+
+	docIDStr := c.Params("documento_id")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de documento inválido"})
+	}
+
+	// 1. Buscar el documento completo con relaciones para guardar datos estáticos
+	var documento models.Documento
+	if err := db.DB.Preload("Subcategoria.Categoria").Preload("Asociado").First(&documento, docID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
+	}
+
+	// Generar nueva ruta de papelera con timestamp
+	timestamp := time.Now().Unix()
+	ext := ".pdf" // Por defecto son PDFs en este gestor
+	
+	// Extraer nombre base o generar ruta nueva en papelera
+	fileName := fmt.Sprintf("doc_subcat_%d_%d_%d%s", documento.SubcategoriaID, documento.AsociadoID, timestamp, ext)
+	gcsTrashPath := fmt.Sprintf("sysdocpruebas/papelera/asociado_%d/%s", documento.AsociadoID, fileName)
+
+	// 2. Mover el archivo físico en GCS
+	if documento.FilePath != "" {
+		ctx := c.UserContext()
+		if err := gcs.MoverArchivo(ctx, documento.FilePath, gcsTrashPath); err != nil {
+			// Si no se puede mover, tal vez el archivo no existe en GCS, pero registramos la advertencia e intentamos continuar
+			fmt.Printf("[WARN] No se pudo mover el archivo físico de %s a %s en GCS: %v\n", documento.FilePath, gcsTrashPath, err)
+			gcsTrashPath = documento.FilePath // fallback a la ruta original
+		}
+	}
+
+	// 3. Transacción de base de datos
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al iniciar la transacción"})
+	}
+
+	// Registrar en documentos_eliminados
+	docEliminado := models.DocumentoEliminado{
+		DocumentoIDOriginal: documento.ID,
+		AsociadoID:          documento.AsociadoID,
+		SubcategoriaID:      documento.SubcategoriaID,
+		NombreSubcategoria:  documento.Subcategoria.Nombre,
+		NombreCategoria:     documento.Subcategoria.Categoria.Nombre,
+		NombreAsociado:      documento.Asociado.NombreCompleto,
+		FilePathOriginal:    documento.FilePath,
+		FilePathPapelera:    gcsTrashPath,
+		TotalPaginas:        documento.TotalPaginas,
+		UsuarioEliminoID:    usuarioID,
+		UsuarioAsignadoID:   nil, // Va a buzón general al inicio
+	}
+
+	if err := tx.Create(&docEliminado).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al registrar en papelera"})
+	}
+
+	// Eliminar los índices de páginas relacionados con el documento activo
+	if err := tx.Where("documento_id = ?", documento.ID).Delete(&models.IndicePagina{}).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar índices de páginas"})
+	}
+
+	// Eliminar el registro de documento activo (libera el índice único)
+	if err := tx.Delete(&documento).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar registro de documento activo"})
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al confirmar los cambios"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Documento movido a la papelera correctamente y registro activo liberado",
+	})
+}
+
+// Helper para verificar si el usuario es Admin o Super Admin de manera robusta
+func isUserAdmin(c *fiber.Ctx) bool {
+	if isUserSuperAdmin(c) {
+		return true
+	}
+
+	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+
+	// 1. Verificar Claims
+	if rolesRaw, ok := claims["roles"]; ok {
+		switch r := rolesRaw.(type) {
+		case []interface{}:
+			for _, role := range r {
+				if s, ok := role.(string); ok && (s == "Administrador" || s == "Admin") {
+					return true
+				}
+			}
+		case string:
+			if r == "Administrador" || r == "Admin" {
+				return true
+			}
+		}
+	}
+
+	// 2. Verificar BD local
+	var usuarioID uint
+	if sub, ok := claims["sub"]; ok {
+		if idFloat, ok := sub.(float64); ok {
+			usuarioID = uint(idFloat)
+		} else if idStr, ok := sub.(string); ok {
+			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+				usuarioID = uint(parsed)
+			}
+		}
+	}
+
+	if usuarioID == 0 {
+		return false
+	}
+
+	var userLocal models.Usuario
+	if err := db.DB.Select("roles").First(&userLocal, usuarioID).Error; err == nil {
+		if userLocal.Roles != nil {
+			rolesStr := *userLocal.Roles
+			if strings.Contains(rolesStr, "Administrador") || strings.Contains(rolesStr, "Admin") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ObtenerPapeleraGeneral obtiene todos los documentos eliminados en la papelera para administradores
+func ObtenerPapeleraGeneral(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Administradores"})
+	}
+
+	var docs []models.DocumentoEliminado
+	err := db.DB.Preload("UsuarioElimino").
+		Preload("UsuarioAsignado").
+		Preload("Asociado").
+		Order("fecha_eliminacion desc").
+		Find(&docs).Error
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener papelera general"})
+	}
+	return c.JSON(docs)
+}
+
+// ObtenerPapeleraUsuario obtiene los documentos de la papelera asignados al usuario actual
+func ObtenerPapeleraUsuario(c *fiber.Ctx) error {
+	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "No autorizado"})
+	}
+	
+	var usuarioID uint
+	if sub, ok := claims["sub"]; ok {
+		if idFloat, ok := sub.(float64); ok {
+			usuarioID = uint(idFloat)
+		} else if idStr, ok := sub.(string); ok {
+			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+				usuarioID = uint(parsed)
+			}
+		}
+	}
+
+	var docs []models.DocumentoEliminado
+	err := db.DB.Preload("UsuarioElimino").
+		Preload("Asociado").
+		Where("usuario_asignado_id = ?", usuarioID).
+		Order("fecha_asignacion desc").
+		Find(&docs).Error
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener documentos asignados"})
+	}
+	return c.JSON(docs)
+}
+
+// AsignarDocumentoPapelera asigna un documento de la papelera a un usuario específico
+func AsignarDocumentoPapelera(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Administradores"})
+	}
+
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID inválido"})
+	}
+
+	type AsignarReq struct {
+		UsuarioAsignadoID uint `json:"usuario_asignado_id"`
+	}
+	var req AsignarReq
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos de solicitud inválidos"})
+	}
+
+	var doc models.DocumentoEliminado
+	if err := db.DB.First(&doc, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado en papelera"})
+	}
+
+	now := time.Now()
+	doc.UsuarioAsignadoID = &req.UsuarioAsignadoID
+	doc.FechaAsignacion = &now
+
+	if err := db.DB.Save(&doc).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al asignar documento"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Documento asignado correctamente al usuario",
+		"documento": doc,
+	})
+}
+
+// DescargarDocumentoPapelera genera un enlace firmado temporal para descargar el documento de la papelera
+func DescargarDocumentoPapelera(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID inválido"})
+	}
+
+	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "No autorizado"})
+	}
+
+	var usuarioID uint
+	if sub, ok := claims["sub"]; ok {
+		if idFloat, ok := sub.(float64); ok {
+			usuarioID = uint(idFloat)
+		} else if idStr, ok := sub.(string); ok {
+			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+				usuarioID = uint(parsed)
+			}
+		}
+	}
+
+	var doc models.DocumentoEliminado
+	if err := db.DB.First(&doc, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado en papelera"})
+	}
+
+	isAdmin := isUserAdmin(c)
+
+	// Verificar permisos: Debe ser Admin, Super Admin, o el usuario asignado
+	if !isAdmin && (doc.UsuarioAsignadoID == nil || *doc.UsuarioAsignadoID != usuarioID) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permiso para descargar este archivo"})
+	}
+
+	url, err := gcs.GenerarURLFirmada(doc.FilePathPapelera, 10*time.Minute)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al generar enlace de descarga", "detalle": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"url": url,
+	})
+}
+
+// EliminarDocumentoPermanente borra permanentemente el archivo físico y lógico de la papelera
+func EliminarDocumentoPermanente(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Administradores"})
+	}
+
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID inválido"})
+	}
+
+	var doc models.DocumentoEliminado
+	if err := db.DB.First(&doc, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado en papelera"})
+	}
+
+	// Eliminar físico en GCS en background
+	if doc.FilePathPapelera != "" {
+		go func(filePath string) {
+			ctx := context.Background()
+			_ = gcs.EliminarArchivo(ctx, filePath)
+		}(doc.FilePathPapelera)
+	}
+
+	// Eliminar de base de datos
+	if err := db.DB.Delete(&doc).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar registro definitivo"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Archivo eliminado de forma permanente y física de la nube",
+	})
+}
+
+// ObtenerUsuarios obtiene la lista de todos los usuarios registrados localmente (para asignación de papelera)
+// GET /api/gestor/papelera/usuarios
+func ObtenerUsuarios(c *fiber.Ctx) error {
+	if !isUserAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Administradores"})
+	}
+
+	var users []models.Usuario
+	err := db.DB.Select("id", "name").Order("name asc").Find(&users).Error
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener usuarios"})
+	}
+	return c.JSON(users)
+}
+
+
+

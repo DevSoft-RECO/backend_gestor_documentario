@@ -92,3 +92,30 @@ type IndicePagina struct {
 func (IndicePagina) TableName() string {
 	return "indices_paginas"
 }
+
+type DocumentoEliminado struct {
+	ID                  uint       `gorm:"primaryKey" json:"id"`
+	DocumentoIDOriginal uint       `json:"documento_id_original"`
+	AsociadoID          uint       `gorm:"not null" json:"asociado_id"`
+	SubcategoriaID      uint       `gorm:"not null" json:"subcategoria_id"`
+	NombreSubcategoria  string     `gorm:"size:255" json:"nombre_subcategoria"`
+	NombreCategoria     string     `gorm:"size:255" json:"nombre_categoria"`
+	NombreAsociado      string     `gorm:"size:255" json:"nombre_asociado"`
+	FilePathOriginal    string     `gorm:"type:text" json:"file_path_original"`
+	FilePathPapelera    string     `gorm:"type:text;not null" json:"file_path_papelera"`
+	TotalPaginas        int        `json:"total_paginas"`
+	UsuarioEliminoID    uint       `json:"usuario_elimino_id"`
+	UsuarioAsignadoID   *uint      `json:"usuario_asignado_id,omitempty"`
+	FechaEliminacion    time.Time  `gorm:"autoCreateTime" json:"fecha_eliminacion"`
+	FechaAsignacion     *time.Time `json:"fecha_asignacion,omitempty"`
+
+	// Relaciones
+	UsuarioElimino  Usuario   `gorm:"foreignKey:UsuarioEliminoID" json:"usuario_elimino"`
+	UsuarioAsignado *Usuario  `gorm:"foreignKey:UsuarioAsignadoID" json:"usuario_asignado,omitempty"`
+	Asociado        Asociado  `gorm:"foreignKey:AsociadoID" json:"asociado"`
+}
+
+func (DocumentoEliminado) TableName() string {
+	return "documentos_eliminados"
+}
+

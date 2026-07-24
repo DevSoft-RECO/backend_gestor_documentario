@@ -43,6 +43,15 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Post("/documentos/upload", gestor.SubirDocumento)
 	gestorGroup.Get("/documentos/:documento_id/url", gestor.GenerarURLDocumento)
 	gestorGroup.Delete("/documentos/:documento_id/eliminar-completo", gestor.EliminarDocumentoCompleto)
+	gestorGroup.Delete("/documentos/:documento_id/eliminar-papelera", gestor.EliminarDocumentoPapelera)
+
+	// Papelera de Reciclaje
+	gestorGroup.Get("/papelera/general", gestor.ObtenerPapeleraGeneral)
+	gestorGroup.Get("/papelera/mi-buzon", gestor.ObtenerPapeleraUsuario)
+	gestorGroup.Put("/papelera/:id/asignar", gestor.AsignarDocumentoPapelera)
+	gestorGroup.Get("/papelera/:id/descargar", gestor.DescargarDocumentoPapelera)
+	gestorGroup.Delete("/papelera/:id/eliminar-permanente", gestor.EliminarDocumentoPermanente)
+	gestorGroup.Get("/papelera/usuarios", gestor.ObtenerUsuarios)
 
 	// Operaciones Quirúrgicas (Índices y Manipulación por Página)
 	gestorGroup.Get("/documentos/:documento_id/indices", gestor.ObtenerIndices)

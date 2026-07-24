@@ -152,3 +152,28 @@ func EliminarArchivo(ctx context.Context, objectName string) error {
 
 	return nil
 }
+
+// MoverArchivo copia un archivo a una nueva ruta en GCS y elimina el origen
+func MoverArchivo(ctx context.Context, srcObjectName, dstObjectName string) error {
+	if gcsClient == nil {
+		if err := InitGCS(); err != nil {
+			return err
+		}
+	}
+
+	src := gcsClient.Bucket(bucketName).Object(srcObjectName)
+	dst := gcsClient.Bucket(bucketName).Object(dstObjectName)
+
+	// Copiar objeto
+	if _, err := dst.CopierFrom(src).Run(ctx); err != nil {
+		return fmt.Errorf("error al copiar archivo de %s a %s: %w", srcObjectName, dstObjectName, err)
+	}
+
+	// Eliminar origen
+	if err := src.Delete(ctx); err != nil {
+		return fmt.Errorf("error al eliminar origen %s después de copiar: %w", srcObjectName, err)
+	}
+
+	return nil
+}
+
