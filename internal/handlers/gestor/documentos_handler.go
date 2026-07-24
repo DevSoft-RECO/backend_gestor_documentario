@@ -172,7 +172,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 	}
 
 	fileName := fmt.Sprintf("doc_subcat_%d_%s.pdf", subcategoriaID, identificador)
-	gcsObjectName := fmt.Sprintf("sysdocpruebas/asociado_%d/%s", asociadoID, fileName)
+	gcsObjectName := fmt.Sprintf("App_Documentos/asociado_%d/%s", asociadoID, fileName)
 
 	// Crear archivo temporal local para contar páginas
 	tempFile, err := os.CreateTemp("", "upload_gcs_*.pdf")
@@ -474,7 +474,7 @@ func EliminarDocumentoPapelera(c *fiber.Ctx) error {
 	
 	// Extraer nombre base o generar ruta nueva en papelera
 	fileName := fmt.Sprintf("doc_subcat_%d_%d_%d%s", documento.SubcategoriaID, documento.AsociadoID, timestamp, ext)
-	gcsTrashPath := fmt.Sprintf("sysdocpruebas/papelera/asociado_%d/%s", documento.AsociadoID, fileName)
+	gcsTrashPath := fmt.Sprintf("App_Documentos/papelera/asociado_%d/%s", documento.AsociadoID, fileName)
 
 	// 2. Mover el archivo físico en GCS
 	if documento.FilePath != "" {

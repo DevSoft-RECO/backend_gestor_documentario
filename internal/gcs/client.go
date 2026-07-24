@@ -177,3 +177,27 @@ func MoverArchivo(ctx context.Context, srcObjectName, dstObjectName string) erro
 	return nil
 }
 
+// CopiarArchivo copia un archivo a una nueva ruta en GCS sin eliminar el original
+func CopiarArchivo(ctx context.Context, srcObjectName, dstObjectName string) error {
+	if gcsClient == nil {
+		if err := InitGCS(); err != nil {
+			return err
+		}
+	}
+
+	src := gcsClient.Bucket(bucketName).Object(srcObjectName)
+	dst := gcsClient.Bucket(bucketName).Object(dstObjectName)
+
+	// Verificar si el origen existe
+	if _, err := src.Attrs(ctx); err != nil {
+		return fmt.Errorf("el archivo origen no existe: %w", err)
+	}
+
+	// Copiar objeto
+	if _, err := dst.CopierFrom(src).Run(ctx); err != nil {
+		return fmt.Errorf("error al copiar archivo de %s a %s: %w", srcObjectName, dstObjectName, err)
+	}
+
+	return nil
+}
+
