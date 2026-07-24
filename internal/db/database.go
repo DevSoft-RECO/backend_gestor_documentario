@@ -55,8 +55,13 @@ func ConnectDB() {
 	}
 
 	// Auto-migración
-	if err := DB.AutoMigrate(&models.Agencia{}, &models.Usuario{}, &models.Puesto{}, &models.Categoria{}, &models.Subcategoria{}, &models.Asociado{}, &models.Documento{}, &models.IndicePagina{}, &models.ManualCategoria{}, &models.ManualSubcategoria{}, &models.ManualCarpeta{}, &models.ManualDocumento{}, &models.ManualActualizacion{}, &models.DocumentoEliminado{}); err != nil {
+	if err := DB.AutoMigrate(&models.Agencia{}, &models.Usuario{}, &models.Puesto{}, &models.Categoria{}, &models.Subcategoria{}, &models.Asociado{}, &models.Documento{}, &models.IndicePagina{}, &models.ManualCategoria{}, &models.ManualSubcategoria{}, &models.ManualCarpeta{}, &models.ManualDocumento{}, &models.ManualActualizacion{}, &models.DocumentoEliminado{}, &models.SubcategoriaPuesto{}); err != nil {
 		log.Printf("[ERROR] Error en auto-migración: %v", err)
+	}
+
+	// Migración JIT para inicializar permisos existentes a true/true
+	if err := DB.Exec("UPDATE subcategoria_puestos SET ver = true, editar = true WHERE ver = false AND editar = false").Error; err != nil {
+		log.Printf("[DB-WARN] No se pudo inicializar ver/editar en subcategoria_puestos: %v", err)
 	}
 	
 	// Quitar el NOT NULL de la columna obsoleta manual_subcategoria_id en manual_documentos

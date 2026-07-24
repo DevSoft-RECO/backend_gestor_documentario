@@ -10,7 +10,7 @@ import (
 
 func GetCategorias(c *fiber.Ctx) error {
 	var categorias []models.Categoria
-	if err := db.DB.Preload("Subcategorias").Preload("Subcategorias.PuestosAutorizados").Find(&categorias).Error; err != nil {
+	if err := db.DB.Preload("Subcategorias").Preload("Subcategorias.PuestosAutorizados.Puesto").Find(&categorias).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener categorías"})
 	}
 	return c.JSON(categorias)
@@ -80,10 +80,25 @@ func UpdateSubcategoria(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar subcategoría"})
 	}
 
-	// Actualizar asociación muchos a muchos con Puestos
-	if err := db.DB.Model(subcategoria).Association("PuestosAutorizados").Replace(subcategoria.PuestosAutorizados); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar puestos autorizados"})
+	// Sincronizar SubcategoriaID en cada puesto
+	for i := range subcategoria.PuestosAutorizados {
+		subcategoria.PuestosAutorizados[i].SubcategoriaID = subcategoria.ID
 	}
+
+	// Transacción manual para evitar el problema de GORM al intentar poner subcategoria_id a NULL
+	tx := db.DB.Begin()
+	if err := tx.Where("subcategoria_id = ?", subcategoria.ID).Delete(&models.SubcategoriaPuesto{}).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al limpiar puestos autorizados"})
+	}
+
+	if len(subcategoria.PuestosAutorizados) > 0 {
+		if err := tx.Create(&subcategoria.PuestosAutorizados).Error; err != nil {
+			tx.Rollback()
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar nuevos puestos autorizados"})
+		}
+	}
+	tx.Commit()
 
 	return c.JSON(subcategoria)
 }

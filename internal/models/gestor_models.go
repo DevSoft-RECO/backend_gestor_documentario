@@ -24,15 +24,25 @@ func (Categoria) TableName() string {
 	return "categorias"
 }
 
-type Subcategoria struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	CategoriaID uint      `gorm:"not null" json:"categoria_id"`
-	Nombre      string    `gorm:"size:150;not null" json:"nombre"`
-	Estado      bool      `gorm:"default:true" json:"estado"`
-	Categoria   Categoria `gorm:"foreignKey:CategoriaID" json:"categoria"`
+type SubcategoriaPuesto struct {
+	SubcategoriaID uint   `gorm:"primaryKey;autoIncrement:false" json:"subcategoria_id"`
+	PuestoID       uint   `gorm:"primaryKey;autoIncrement:false" json:"puesto_id"`
+	Ver            bool   `gorm:"default:false" json:"ver"`
+	Editar         bool   `gorm:"default:false" json:"editar"`
+	Puesto         Puesto `gorm:"foreignKey:PuestoID" json:"puesto,omitempty"`
+}
 
-	// Relación muchos a muchos con Puestos
-	PuestosAutorizados []Puesto `gorm:"many2many:subcategoria_puestos;" json:"puestos_autorizados"`
+func (SubcategoriaPuesto) TableName() string {
+	return "subcategoria_puestos"
+}
+
+type Subcategoria struct {
+	ID          uint                 `gorm:"primaryKey" json:"id"`
+	CategoriaID uint                 `gorm:"not null" json:"categoria_id"`
+	Nombre      string               `gorm:"size:150;not null" json:"nombre"`
+	Estado      bool                 `gorm:"default:true" json:"estado"`
+	Categoria   Categoria            `gorm:"foreignKey:CategoriaID" json:"categoria"`
+	PuestosAutorizados []SubcategoriaPuesto `gorm:"foreignKey:SubcategoriaID" json:"puestos_autorizados"`
 }
 
 func (Subcategoria) TableName() string {

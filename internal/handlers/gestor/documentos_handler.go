@@ -140,7 +140,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 			authorized := false
 			if userLocal.IDPuesto != nil {
 				for _, p := range subcategoria.PuestosAutorizados {
-					if p.ID == *userLocal.IDPuesto {
+					if p.PuestoID == *userLocal.IDPuesto && p.Editar {
 						authorized = true
 						break
 					}
@@ -356,7 +356,7 @@ func GenerarURLDocumento(c *fiber.Ctx) error {
 				authorized := false
 				if userLocal.IDPuesto != nil {
 					for _, p := range documento.Subcategoria.PuestosAutorizados {
-						if p.ID == *userLocal.IDPuesto {
+						if p.PuestoID == *userLocal.IDPuesto && (p.Ver || p.Editar) {
 							authorized = true
 							break
 						}

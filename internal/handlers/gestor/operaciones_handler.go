@@ -104,7 +104,7 @@ func InsertarPaginas(c *fiber.Ctx) error {
 			authorized := false
 			if userLocal.IDPuesto != nil {
 				for _, p := range documento.Subcategoria.PuestosAutorizados {
-					if p.ID == *userLocal.IDPuesto { authorized = true; break }
+					if p.PuestoID == *userLocal.IDPuesto && p.Editar { authorized = true; break }
 				}
 			}
 			if !authorized {
@@ -288,7 +288,7 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 			authorized := false
 			if userLocal_Rep.IDPuesto != nil {
 				for _, p := range documento.Subcategoria.PuestosAutorizados {
-					if p.ID == *userLocal_Rep.IDPuesto { authorized = true; break }
+					if p.PuestoID == *userLocal_Rep.IDPuesto && p.Editar { authorized = true; break }
 				}
 			}
 			if !authorized {
@@ -426,7 +426,7 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 			authorized := false
 			if userLocal_Del.IDPuesto != nil {
 				for _, p := range documento.Subcategoria.PuestosAutorizados {
-					if p.ID == *userLocal_Del.IDPuesto { authorized = true; break }
+					if p.PuestoID == *userLocal_Del.IDPuesto && p.Editar { authorized = true; break }
 				}
 			}
 			if !authorized {
