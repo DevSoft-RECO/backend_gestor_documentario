@@ -20,6 +20,7 @@ type Config struct {
 	GCSKeyFile         string
 	BackupMadreToken   string
 	BackupPgDumpPath   string
+	GCSPathPrefix      string
 }
 
 var Envs *Config
@@ -41,6 +42,7 @@ func LoadConfig() {
 		GCSKeyFile:         getEnv("GCS_KEY_FILE", ""),
 		BackupMadreToken:   getEnv("BACKUP_MADRE_TOKEN", "secreto_backup_hija_app2_2026"),
 		BackupPgDumpPath:   getEnv("BACKUP_PG_DUMP_PATH", "pg_dump"),
+		GCSPathPrefix:      getEnv("GCS_PATH_PREFIX", "App_Documentos"),
 	}
 
 
