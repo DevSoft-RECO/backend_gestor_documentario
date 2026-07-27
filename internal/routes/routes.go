@@ -61,6 +61,7 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Put("/indices/:id", gestor.ActualizarIndice)
 	gestorGroup.Get("/busqueda/documento/:numero", gestor.BuscarDocumentoPorNumero)
 	gestorGroup.Get("/dashboard/stats", gestor.GetDashboardStats)
+	gestorGroup.Get("/dashboard/gcs-size", gestor.GetGCSStorageSize)
 
 	// Módulo Independiente de Manuales (Biblioteca de Documentación) - Protegido
 	manualesGroup := api.Group("/manuales", middleware.AuthRequired)

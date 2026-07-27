@@ -10,6 +10,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/config"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -199,5 +200,32 @@ func CopiarArchivo(ctx context.Context, srcObjectName, dstObjectName string) err
 	}
 
 	return nil
+}
+
+// ObtenerTamanoBucket calcula el tamaño total de la carpeta específica en GCS en bytes listando sus objetos
+func ObtenerTamanoBucket(ctx context.Context) (int64, error) {
+	if gcsClient == nil {
+		if err := InitGCS(); err != nil {
+			return 0, err
+		}
+	}
+
+	var totalSize int64 = 0
+	prefix := config.Envs.GCSPathPrefix
+	query := &storage.Query{Prefix: prefix}
+
+	it := gcsClient.Bucket(bucketName).Objects(ctx, query)
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("error listando objetos de la carpeta GCS para calcular tamaño: %w", err)
+		}
+		totalSize += attrs.Size
+	}
+
+	return totalSize, nil
 }
 

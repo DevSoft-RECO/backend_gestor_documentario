@@ -1,9 +1,11 @@
 package gestor
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -61,6 +63,7 @@ type DashboardStats struct {
 	ManualesCreadosMes      int64               `json:"manuales_creados_mes"`
 	ManualesPorCategoria    []CategoryCount     `json:"manuales_por_categoria"`
 	ManualesRecientes       []RecentManualItem  `json:"manuales_recientes"`
+	GCSSizeBytes            int64               `json:"gcs_size_bytes"`
 }
 
 // GetDashboardStats devuelve las métricas consolidadas del sistema.
@@ -185,5 +188,23 @@ func GetDashboardStats(c *fiber.Ctx) error {
 		Scan(&manualesRecientes)
 	stats.ManualesRecientes = manualesRecientes
 
+	// G. Tamaño del Bucket en Google Cloud Storage (Se delega a endpoint por separado)
+	stats.GCSSizeBytes = 0
+
 	return c.JSON(stats)
+}
+
+// GetGCSStorageSize devuelve el tamaño consumido en GCS de forma aislada para optimizar el rendimiento.
+func GetGCSStorageSize(c *fiber.Ctx) error {
+	type GCSResponse struct {
+		GCSSizeBytes int64 `json:"gcs_size_bytes"`
+	}
+
+	gcsSize, err := gcs.ObtenerTamanoBucket(c.UserContext())
+	if err != nil {
+		fmt.Printf("[GCS] Error al calcular el tamaño del bucket: %v\n", err)
+		return c.Status(500).JSON(fiber.Map{"error": "No se pudo calcular el espacio en GCS"})
+	}
+
+	return c.JSON(GCSResponse{GCSSizeBytes: gcsSize})
 }
