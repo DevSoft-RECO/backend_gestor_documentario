@@ -104,10 +104,16 @@ func GetAdminAsociados(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar asociados"})
 	}
 
+	sort := c.Query("sort", "newest")
+	orderBy := "asociados.fecha_registro DESC"
+	if sort == "size" {
+		orderBy = "total_tamano DESC"
+	}
+
 	asociados := []AdminAsociadoResponse{}
 	err = query.
 		Select("asociados.*, (SELECT COUNT(*) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_documentos, (SELECT COALESCE(SUM(tamano), 0) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_tamano").
-		Order("nombre_completo ASC").
+		Order(orderBy).
 		Limit(limit).
 		Offset(offset).
 		Scan(&asociados).Error
