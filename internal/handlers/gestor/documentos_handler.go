@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -590,25 +591,85 @@ func isUserAdmin(c *fiber.Ctx) bool {
 	return false
 }
 
-// ObtenerPapeleraGeneral obtiene todos los documentos eliminados en la papelera para administradores
+// queryPapelera es un helper genérico para aplicar paginación y búsqueda en GORM para la papelera
+func queryPapelera(c *fiber.Ctx, baseQuery *gorm.DB) error {
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "15")
+	search := c.Query("search", "")
+	fecha := c.Query("fecha", "")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 {
+		limit = 15
+	}
+	offset := (page - 1) * limit
+
+	query := baseQuery
+
+	// Filtro de búsqueda (Nombre de asociado o ID de archivo)
+	if search != "" {
+		searchQuery := "%" + strings.ToLower(strings.TrimSpace(search)) + "%"
+		cleanIDQuery := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(search)), "#", "")
+
+		if idVal, err := strconv.Atoi(cleanIDQuery); err == nil {
+			query = query.Joins("LEFT JOIN asociados ON documentos_eliminados.asociado_id = asociados.id").
+				Where("LOWER(asociados.nombre_completo) LIKE ? OR documentos_eliminados.id = ?", searchQuery, idVal)
+		} else {
+			query = query.Joins("LEFT JOIN asociados ON documentos_eliminados.asociado_id = asociados.id").
+				Where("LOWER(asociados.nombre_completo) LIKE ?", searchQuery)
+		}
+	}
+
+	// Filtro de fecha
+	if fecha != "" {
+		query = query.Where("DATE(documentos_eliminados.fecha_eliminacion) = ?", fecha)
+	}
+
+	var total int64
+	countQuery := query.Session(&gorm.Session{})
+	if err := countQuery.Model(&models.DocumentoEliminado{}).Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar elementos de la papelera"})
+	}
+
+	var docs []models.DocumentoEliminado
+	err = query.Select("documentos_eliminados.*").
+		Preload("UsuarioElimino").
+		Preload("UsuarioAsignado").
+		Preload("Asociado").
+		Order("documentos_eliminados.fecha_eliminacion desc").
+		Limit(limit).
+		Offset(offset).
+		Find(&docs).Error
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener elementos de la papelera"})
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+
+	return c.JSON(fiber.Map{
+		"data":  docs,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+		"pages": totalPages,
+	})
+}
+
+// ObtenerPapeleraGeneral obtiene todos los documentos eliminados en la papelera para administradores (PAGINADO)
 func ObtenerPapeleraGeneral(c *fiber.Ctx) error {
 	if !isUserAdmin(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido a Administradores"})
 	}
 
-	var docs []models.DocumentoEliminado
-	err := db.DB.Preload("UsuarioElimino").
-		Preload("UsuarioAsignado").
-		Preload("Asociado").
-		Order("fecha_eliminacion desc").
-		Find(&docs).Error
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener papelera general"})
-	}
-	return c.JSON(docs)
+	baseQuery := db.DB.Model(&models.DocumentoEliminado{})
+	return queryPapelera(c, baseQuery)
 }
 
-// ObtenerPapeleraUsuario obtiene los documentos de la papelera asignados al usuario actual
+// ObtenerPapeleraUsuario obtiene los documentos de la papelera asignados al usuario actual (PAGINADO)
 func ObtenerPapeleraUsuario(c *fiber.Ctx) error {
 	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
 	if !ok {
@@ -626,16 +687,8 @@ func ObtenerPapeleraUsuario(c *fiber.Ctx) error {
 		}
 	}
 
-	var docs []models.DocumentoEliminado
-	err := db.DB.Preload("UsuarioElimino").
-		Preload("Asociado").
-		Where("usuario_asignado_id = ?", usuarioID).
-		Order("fecha_asignacion desc").
-		Find(&docs).Error
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener documentos asignados"})
-	}
-	return c.JSON(docs)
+	baseQuery := db.DB.Model(&models.DocumentoEliminado{}).Where("documentos_eliminados.usuario_asignado_id = ?", usuarioID)
+	return queryPapelera(c, baseQuery)
 }
 
 // AsignarDocumentoPapelera asigna un documento de la papelera a un usuario específico
