@@ -781,5 +781,50 @@ func ObtenerUsuarios(c *fiber.Ctx) error {
 	return c.JSON(users)
 }
 
+// ObtenerPapeleraAsociado obtiene todos los documentos y hojas eliminadas en la papelera para un asociado específico
+// GET /api/gestor/asociados/:id/papelera
+func ObtenerPapeleraAsociado(c *fiber.Ctx) error {
+	asociadoID := c.Params("id")
+
+	var docs []models.DocumentoEliminado
+	err := db.DB.Preload("UsuarioElimino").
+		Preload("Asociado").
+		Where("asociado_id = ?", asociadoID).
+		Order("fecha_eliminacion desc").
+		Find(&docs).Error
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener papelera del asociado"})
+	}
+	return c.JSON(docs)
+}
+
+// GenerarURLDocumentoPapelera genera una URL firmada de 1 minuto para visualizar un documento o página de la papelera
+// GET /api/gestor/papelera/:id/url
+func GenerarURLDocumentoPapelera(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID inválido"})
+	}
+
+	var doc models.DocumentoEliminado
+	if err := db.DB.First(&doc, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado en la papelera"})
+	}
+
+	// Generar URL firmada de 1 minuto
+	url, err := gcs.GenerarURLFirmada(doc.FilePathPapelera, 1*time.Minute)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Error al generar el enlace de visualización",
+			"detalle": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"url": url,
+	})
+}
+
 
 
