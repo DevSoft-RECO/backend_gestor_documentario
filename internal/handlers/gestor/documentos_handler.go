@@ -203,6 +203,12 @@ func SubirDocumento(c *fiber.Ctx) error {
 		fmt.Printf("[WARN] No se pudo comprimir el PDF con Ghostscript %s: %v\n", tempFilePath, errComp)
 	}
 
+	// Obtener el tamaño del archivo temporal
+	var fileSize int64 = 0
+	if fileInfo, errStat := os.Stat(tempFilePath); errStat == nil {
+		fileSize = fileInfo.Size()
+	}
+
 	// Abrir el archivo temporal para subirlo a GCS
 	fToUpload, err := os.Open(tempFilePath)
 	if err != nil {
@@ -223,6 +229,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 		// Ya existe: actualizar la ruta, total de páginas y el timestamp
 		documento.FilePath = gcsObjectName
 		documento.TotalPaginas = totalPaginas
+		documento.Tamano = fileSize
 		if err := db.DB.Save(&documento).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar registro de documento"})
 		}
@@ -237,6 +244,7 @@ func SubirDocumento(c *fiber.Ctx) error {
 			SubcategoriaID: uint(subcategoriaID),
 			FilePath:       gcsObjectName,
 			TotalPaginas:   totalPaginas,
+			Tamano:         fileSize,
 			UsuarioID:      usuarioID,
 		}
 		if err := db.DB.Create(&documento).Error; err != nil {

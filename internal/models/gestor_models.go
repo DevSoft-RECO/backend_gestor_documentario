@@ -69,6 +69,7 @@ type Documento struct {
 	SubcategoriaID      uint         `gorm:"not null;uniqueIndex:idx_asociado_subcategoria" json:"subcategoria_id"`
 	FilePath            string       `gorm:"type:text;not null" json:"file_path"`
 	TotalPaginas        int          `gorm:"default:0" json:"total_paginas"`
+	Tamano              int64        `gorm:"default:0" json:"tamano"`
 	FechaCreacion       time.Time    `gorm:"autoCreateTime" json:"fecha_creacion"`
 	UltimaActualizacion time.Time    `gorm:"autoUpdateTime" json:"ultima_actualizacion"`
 	UsuarioID           uint         `gorm:"not null;default:1" json:"usuario_id"` // Quien creó el documento inicialmente
@@ -114,6 +115,7 @@ type DocumentoEliminado struct {
 	FilePathOriginal    string     `gorm:"type:text" json:"file_path_original"`
 	FilePathPapelera    string     `gorm:"type:text;not null" json:"file_path_papelera"`
 	TotalPaginas        int        `json:"total_paginas"`
+	Tamano              int64      `gorm:"default:0" json:"tamano"`
 	UsuarioEliminoID    uint       `json:"usuario_elimino_id"`
 	UsuarioAsignadoID   *uint      `json:"usuario_asignado_id,omitempty"`
 	FechaEliminacion    time.Time  `gorm:"autoCreateTime" json:"fecha_eliminacion"`

@@ -81,6 +81,7 @@ func EliminarDocumentoPapelera(c *fiber.Ctx) error {
 		FilePathOriginal:    documento.FilePath,
 		FilePathPapelera:    gcsTrashPath,
 		TotalPaginas:        documento.TotalPaginas,
+		Tamano:              documento.Tamano,
 		UsuarioEliminoID:    usuarioID,
 		UsuarioAsignadoID:   nil, // Va a buzón general al inicio
 	}

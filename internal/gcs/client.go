@@ -229,3 +229,18 @@ func ObtenerTamanoBucket(ctx context.Context) (int64, error) {
 	return totalSize, nil
 }
 
+// ObtenerTamanoArchivo obtiene el tamaño en bytes de un archivo específico en GCS
+func ObtenerTamanoArchivo(ctx context.Context, objectName string) (int64, error) {
+	if gcsClient == nil {
+		if err := InitGCS(); err != nil {
+			return 0, err
+		}
+	}
+
+	attrs, err := gcsClient.Bucket(bucketName).Object(objectName).Attrs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return attrs.Size, nil
+}
+

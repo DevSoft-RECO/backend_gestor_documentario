@@ -531,6 +531,11 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	if errTrim := api.TrimFile(masterPath, tempPageTrash, []string{strconv.Itoa(targetPage)}, nil); errTrim == nil {
 		defer os.Remove(tempPageTrash)
 
+		var fileSizeTrash int64 = 0
+		if fileInfoTrash, errStatTrash := os.Stat(tempPageTrash); errStatTrash == nil {
+			fileSizeTrash = fileInfoTrash.Size()
+		}
+
 		timestamp := time.Now().Unix()
 		fileNameTrash := fmt.Sprintf("hoja_del_%d_%d_%d.pdf", documento.ID, targetPage, timestamp)
 		gcsTrashPath := fmt.Sprintf("%s/papelera/asociado_%d/%s", config.Envs.GCSPathPrefix, documento.AsociadoID, fileNameTrash)
@@ -548,6 +553,7 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 					FilePathOriginal:    documento.FilePath,
 					FilePathPapelera:    gcsTrashPath,
 					TotalPaginas:        1,
+					Tamano:              fileSizeTrash,
 					UsuarioEliminoID:    usuarioID_Del,
 				}
 				if errCreate := tx.Create(&docEliminado).Error; errCreate != nil {
@@ -565,6 +571,11 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 	// --- FIN RESGUARDO ---
 
+	var fileSize int64 = 0
+	if fileInfo, errStat := os.Stat(tempOutPath); errStat == nil {
+		fileSize = fileInfo.Size()
+	}
+
 	// 1. Físico (Subir a GCS)
 	outFile, err := os.Open(tempOutPath)
 	if err != nil {
@@ -578,8 +589,11 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al subir PDF reconstruido a la nube", "detalle": err.Error()})
 	}
 
-	// 1.5 Lógico: Actualizar total_paginas en BD
-	if err := tx.Model(&documento).Update("total_paginas", pageCount-1).Error; err != nil {
+	// 1.5 Lógico: Actualizar total_paginas y tamano en BD
+	if err := tx.Model(&documento).Updates(map[string]interface{}{
+		"total_paginas": pageCount - 1,
+		"tamano":        fileSize,
+	}).Error; err != nil {
 		tx.Rollback()
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar total de páginas en BD"})
 	}
