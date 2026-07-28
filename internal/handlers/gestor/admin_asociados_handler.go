@@ -2,6 +2,7 @@ package gestor
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -67,6 +68,7 @@ func isUserSuperAdmin(c *fiber.Ctx) bool {
 type AdminAsociadoResponse struct {
 	models.Asociado
 	TotalDocumentos int64 `json:"total_documentos"`
+	TotalTamano     int64 `json:"total_tamano"`
 }
 
 func GetAdminAsociados(c *fiber.Ctx) error {
@@ -104,7 +106,7 @@ func GetAdminAsociados(c *fiber.Ctx) error {
 
 	asociados := []AdminAsociadoResponse{}
 	err = query.
-		Select("asociados.*, (SELECT COUNT(*) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_documentos").
+		Select("asociados.*, (SELECT COUNT(*) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_documentos, (SELECT COALESCE(SUM(tamano), 0) FROM documentos WHERE documentos.asociado_id = asociados.id) as total_tamano").
 		Order("nombre_completo ASC").
 		Limit(limit).
 		Offset(offset).
@@ -114,11 +116,17 @@ func GetAdminAsociados(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al recuperar asociados"})
 	}
 
+	var totalTamanoGlobal int64
+	if err := db.DB.Model(&models.Documento{}).Select("COALESCE(SUM(tamano), 0)").Scan(&totalTamanoGlobal).Error; err != nil {
+		fmt.Printf("[WARN] No se pudo calcular tamaño global: %v\n", err)
+	}
+
 	return c.JSON(fiber.Map{
-		"asociados": asociados,
-		"total":     total,
-		"page":      page,
-		"limit":     limit,
+		"asociados":            asociados,
+		"total":                total,
+		"page":                 page,
+		"limit":                limit,
+		"total_tamano_global":  totalTamanoGlobal,
 	})
 }
 
