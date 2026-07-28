@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/config"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/db"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/gcs"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/models"
@@ -259,7 +260,7 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 
 	var documento models.Documento
-	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").First(&documento, documentoID).Error; err != nil {
+	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").Preload("Subcategoria.Categoria").Preload("Asociado").First(&documento, documentoID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
 	}
 
@@ -357,6 +358,45 @@ func ReemplazarPaginaEspecifica(c *fiber.Ctx) error {
 
 	tx := db.DB.Begin()
 
+	// --- RESGUARDO DE HOJA EN PAPELERA ---
+	tempPageTrash := filepath.Join(os.TempDir(), fmt.Sprintf("page_trash_%d.pdf", time.Now().UnixNano()))
+	if errTrim := api.TrimFile(masterPath, tempPageTrash, []string{strconv.Itoa(targetPage)}, nil); errTrim == nil {
+		defer os.Remove(tempPageTrash)
+
+		timestamp := time.Now().Unix()
+		fileNameTrash := fmt.Sprintf("hoja_rem_%d_%d_%d.pdf", documento.ID, targetPage, timestamp)
+		gcsTrashPath := fmt.Sprintf("%s/papelera/asociado_%d/%s", config.Envs.GCSPathPrefix, documento.AsociadoID, fileNameTrash)
+
+		fileToUpload, errOpen := os.Open(tempPageTrash)
+		if errOpen == nil {
+			if errSubida := gcs.SubirArchivo(c.UserContext(), gcsTrashPath, fileToUpload); errSubida == nil {
+				docEliminado := models.DocumentoEliminado{
+					DocumentoIDOriginal: documento.ID,
+					AsociadoID:          documento.AsociadoID,
+					SubcategoriaID:      documento.SubcategoriaID,
+					NombreSubcategoria:  fmt.Sprintf("Pág. %d (Reemplazada de %s)", targetPage, documento.Subcategoria.Nombre),
+					NombreCategoria:     documento.Subcategoria.Categoria.Nombre,
+					NombreAsociado:      documento.Asociado.NombreCompleto,
+					FilePathOriginal:    documento.FilePath,
+					FilePathPapelera:    gcsTrashPath,
+					TotalPaginas:        1,
+					UsuarioEliminoID:    usuarioID_Rep,
+				}
+				if errCreate := tx.Create(&docEliminado).Error; errCreate != nil {
+					fmt.Printf("[WARN] No se pudo crear registro de papelera en BD: %v\n", errCreate)
+				}
+			} else {
+				fmt.Printf("[WARN] No se pudo subir hoja a papelera en GCS: %v\n", errSubida)
+			}
+			fileToUpload.Close()
+		} else {
+			fmt.Printf("[WARN] No se pudo abrir hoja temporal de papelera: %v\n", errOpen)
+		}
+	} else {
+		fmt.Printf("[WARN] No se pudo recortar hoja para papelera: %v\n", errTrim)
+	}
+	// --- FIN RESGUARDO ---
+
 	// 1. Físico (Subir a GCS)
 	outFile, err := os.Open(tempOutPath)
 	if err != nil {
@@ -397,7 +437,7 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 
 	var documento models.Documento
-	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").First(&documento, documentoID).Error; err != nil {
+	if err := db.DB.Preload("Subcategoria.PuestosAutorizados").Preload("Subcategoria.Categoria").Preload("Asociado").First(&documento, documentoID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
 	}
 
@@ -485,6 +525,45 @@ func EliminarPaginaEspecifica(c *fiber.Ctx) error {
 	}
 
 	tx := db.DB.Begin()
+
+	// --- RESGUARDO DE HOJA EN PAPELERA ---
+	tempPageTrash := filepath.Join(os.TempDir(), fmt.Sprintf("page_trash_%d.pdf", time.Now().UnixNano()))
+	if errTrim := api.TrimFile(masterPath, tempPageTrash, []string{strconv.Itoa(targetPage)}, nil); errTrim == nil {
+		defer os.Remove(tempPageTrash)
+
+		timestamp := time.Now().Unix()
+		fileNameTrash := fmt.Sprintf("hoja_del_%d_%d_%d.pdf", documento.ID, targetPage, timestamp)
+		gcsTrashPath := fmt.Sprintf("%s/papelera/asociado_%d/%s", config.Envs.GCSPathPrefix, documento.AsociadoID, fileNameTrash)
+
+		fileToUpload, errOpen := os.Open(tempPageTrash)
+		if errOpen == nil {
+			if errSubida := gcs.SubirArchivo(c.UserContext(), gcsTrashPath, fileToUpload); errSubida == nil {
+				docEliminado := models.DocumentoEliminado{
+					DocumentoIDOriginal: documento.ID,
+					AsociadoID:          documento.AsociadoID,
+					SubcategoriaID:      documento.SubcategoriaID,
+					NombreSubcategoria:  fmt.Sprintf("Pág. %d (Eliminada de %s)", targetPage, documento.Subcategoria.Nombre),
+					NombreCategoria:     documento.Subcategoria.Categoria.Nombre,
+					NombreAsociado:      documento.Asociado.NombreCompleto,
+					FilePathOriginal:    documento.FilePath,
+					FilePathPapelera:    gcsTrashPath,
+					TotalPaginas:        1,
+					UsuarioEliminoID:    usuarioID_Del,
+				}
+				if errCreate := tx.Create(&docEliminado).Error; errCreate != nil {
+					fmt.Printf("[WARN] No se pudo crear registro de papelera en BD: %v\n", errCreate)
+				}
+			} else {
+				fmt.Printf("[WARN] No se pudo subir hoja a papelera en GCS: %v\n", errSubida)
+			}
+			fileToUpload.Close()
+		} else {
+			fmt.Printf("[WARN] No se pudo abrir hoja temporal de papelera: %v\n", errOpen)
+		}
+	} else {
+		fmt.Printf("[WARN] No se pudo recortar hoja para papelera: %v\n", errTrim)
+	}
+	// --- FIN RESGUARDO ---
 
 	// 1. Físico (Subir a GCS)
 	outFile, err := os.Open(tempOutPath)
