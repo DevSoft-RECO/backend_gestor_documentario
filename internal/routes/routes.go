@@ -65,6 +65,10 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Get("/dashboard/stats", gestor.GetDashboardStats)
 	gestorGroup.Get("/dashboard/gcs-size", gestor.GetGCSStorageSize)
 
+	// Reportes Exportación (CSV)
+	reportesGroup := gestorGroup.Group("/exportar", middleware.RequirePermission("reportes_hum"))
+	reportesGroup.Get("/unificado", gestor.ExportarReporteUnificado)
+
 	// Módulo Independiente de Manuales (Biblioteca de Documentación) - Protegido
 	manualesGroup := api.Group("/manuales", middleware.AuthRequired)
 	// Lectores generales (por puesto)
