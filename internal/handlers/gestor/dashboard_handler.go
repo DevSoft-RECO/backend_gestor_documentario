@@ -53,6 +53,7 @@ type DashboardStats struct {
 	CategoriasActivas      int64               `json:"categorias_activas"`
 	OperacionesMes         int64               `json:"operaciones_mes"`
 	DocumentosPorMes       []MonthlyCount      `json:"documentos_por_mes"`
+	AsociadosPorMes        []MonthlyCount      `json:"asociados_por_mes"`
 	DocumentosPorCategoria []CategoryCount     `json:"documentos_por_categoria"`
 	ActividadReciente      []ActividadItem     `json:"actividad_reciente"`
 	AlertasVencimiento     []AlertaVencimiento `json:"alertas_vencimiento"`
@@ -63,7 +64,6 @@ type DashboardStats struct {
 	ManualesCreadosMes      int64               `json:"manuales_creados_mes"`
 	ManualesPorCategoria    []CategoryCount     `json:"manuales_por_categoria"`
 	ManualesRecientes       []RecentManualItem  `json:"manuales_recientes"`
-	GCSSizeBytes            int64               `json:"gcs_size_bytes"`
 }
 
 // GetDashboardStats devuelve las métricas consolidadas del sistema.
@@ -115,6 +115,25 @@ func GetDashboardStats(c *fiber.Ctx) error {
 			Scan(&docsPorMes)
 	}
 	stats.DocumentosPorMes = docsPorMes
+
+	// 7.5 Asociados creados por mes (últimos 6 meses)
+	var asocPorMes []MonthlyCount
+	db.DB.Table("asociados").
+		Select("TO_CHAR(fecha_creacion, 'YYYY-MM') AS mes, COUNT(*) AS total").
+		Where("fecha_creacion >= ?", seisAtras).
+		Group("mes").
+		Order("mes ASC").
+		Scan(&asocPorMes)
+
+	if len(asocPorMes) == 0 {
+		db.DB.Table("asociados").
+			Select("DATE_FORMAT(fecha_creacion, '%Y-%m') AS mes, COUNT(*) AS total").
+			Where("fecha_creacion >= ?", seisAtras).
+			Group("mes").
+			Order("mes ASC").
+			Scan(&asocPorMes)
+	}
+	stats.AsociadosPorMes = asocPorMes
 
 	// 8. Documentos por Categoría
 	var docsPorCategoria []CategoryCount
@@ -187,9 +206,6 @@ func GetDashboardStats(c *fiber.Ctx) error {
 		Limit(5).
 		Scan(&manualesRecientes)
 	stats.ManualesRecientes = manualesRecientes
-
-	// G. Tamaño del Bucket en Google Cloud Storage (Se delega a endpoint por separado)
-	stats.GCSSizeBytes = 0
 
 	return c.JSON(stats)
 }
