@@ -318,12 +318,135 @@ func EliminarDocumentoPermanente(c *fiber.Ctx) error {
 		}(doc.FilePathPapelera)
 	}
 
-	// 2. Eliminar registro lógico
+	// 2. Eliminar registro lgico
 	if err := db.DB.Delete(&doc).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al depurar registro de la papelera"})
 	}
 
 	return c.JSON(fiber.Map{"message": "Archivo físico y lógico depurado permanentemente de la papelera"})
+}
+
+// PrevisualizarPurgaMasiva retorna la cantidad de archivos que coinciden con los filtros
+// POST /api/gestor/papelera/previsualizar-purga
+func PrevisualizarPurgaMasiva(c *fiber.Ctx) error {
+	if !isUserSuperAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido exclusivamente a Super Administradores"})
+	}
+
+	var req struct {
+		FechaInicio string `json:"fecha_inicio"`
+		FechaFin    string `json:"fecha_fin"`
+		TipoAccion  string `json:"tipo_accion"` // "todos", "reemplazo", "eliminacion_pagina", "eliminacion_documento"
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Payload inválido"})
+	}
+
+	query := db.DB.Model(&models.DocumentoEliminado{})
+
+	if req.FechaInicio != "" {
+		query = query.Where("fecha_eliminacion >= ?", req.FechaInicio)
+	}
+
+	if req.FechaFin != "" {
+		fechaFinParsed, err := time.Parse("2006-01-02", req.FechaFin)
+		if err == nil {
+			fechaFinFormatted := fechaFinParsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second).Format("2006-01-02 15:04:05")
+			query = query.Where("fecha_eliminacion <= ?", fechaFinFormatted)
+		} else {
+			query = query.Where("fecha_eliminacion <= ?", req.FechaFin)
+		}
+	}
+
+	if req.TipoAccion == "reemplazo" {
+		query = query.Where("nombre_subcategoria LIKE ?", "%Reemplazada%")
+	} else if req.TipoAccion == "eliminacion_pagina" {
+		query = query.Where("nombre_subcategoria LIKE ?", "%Eliminada%")
+	} else if req.TipoAccion == "eliminacion_documento" {
+		query = query.Where("nombre_subcategoria NOT LIKE ? AND nombre_subcategoria NOT LIKE ?", "%Reemplazada%", "%Eliminada%")
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar documentos"})
+	}
+
+	return c.JSON(fiber.Map{"count": total})
+}
+
+// PurgarPapeleraMasivo depura permanentemente múltiples archivos filtrados
+// DELETE /api/gestor/papelera/purgar-masivo
+func PurgarPapeleraMasivo(c *fiber.Ctx) error {
+	if !isUserSuperAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Acceso restringido exclusivamente a Super Administradores"})
+	}
+
+	var req struct {
+		FechaInicio string `json:"fecha_inicio"`
+		FechaFin    string `json:"fecha_fin"`
+		TipoAccion  string `json:"tipo_accion"` // "todos", "reemplazo", "eliminacion_pagina", "eliminacion_documento"
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Payload inválido"})
+	}
+
+	query := db.DB.Model(&models.DocumentoEliminado{})
+
+	if req.FechaInicio != "" {
+		query = query.Where("fecha_eliminacion >= ?", req.FechaInicio)
+	}
+
+	if req.FechaFin != "" {
+		// Agregar tiempo al final del día para fechaFin
+		fechaFinParsed, err := time.Parse("2006-01-02", req.FechaFin)
+		if err == nil {
+			fechaFinFormatted := fechaFinParsed.Add(23*time.Hour + 59*time.Minute + 59*time.Second).Format("2006-01-02 15:04:05")
+			query = query.Where("fecha_eliminacion <= ?", fechaFinFormatted)
+		} else {
+			query = query.Where("fecha_eliminacion <= ?", req.FechaFin) // Fallback
+		}
+	}
+
+	if req.TipoAccion == "reemplazo" {
+		query = query.Where("nombre_subcategoria LIKE ?", "%Reemplazada%")
+	} else if req.TipoAccion == "eliminacion_pagina" {
+		query = query.Where("nombre_subcategoria LIKE ?", "%Eliminada%")
+	} else if req.TipoAccion == "eliminacion_documento" {
+		query = query.Where("nombre_subcategoria NOT LIKE ? AND nombre_subcategoria NOT LIKE ?", "%Reemplazada%", "%Eliminada%")
+	}
+
+	var docs []models.DocumentoEliminado
+	if err := query.Find(&docs).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al buscar documentos a purgar"})
+	}
+
+	if len(docs) == 0 {
+		return c.JSON(fiber.Map{"message": "No se encontraron documentos para purgar con los filtros proporcionados", "count": 0})
+	}
+
+	// Extraer IDs y rutas
+	var ids []uint
+	for _, doc := range docs {
+		ids = append(ids, doc.ID)
+		if doc.FilePathPapelera != "" {
+			go func(path string) {
+				ctx := context.Background()
+				_ = gcs.EliminarArchivo(ctx, path)
+			}(doc.FilePathPapelera)
+		}
+	}
+
+	// Eliminar de base de datos
+	if err := db.DB.Where("id IN ?", ids).Delete(&models.DocumentoEliminado{}).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al eliminar registros masivos"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": fmt.Sprintf("Purgado completado. %d documentos depurados.", len(ids)),
+		"count":   len(ids),
+	})
 }
 
 // ObtenerUsuarios obtiene la lista de todos los usuarios registrados localmente (para asignación de papelera)

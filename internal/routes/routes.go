@@ -47,6 +47,8 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Put("/documentos/:documento_id/mover", gestor.MoverDocumento)
 
 	// Papelera de Reciclaje
+	gestorGroup.Delete("/papelera/purgar-masivo", gestor.PurgarPapeleraMasivo)
+	gestorGroup.Post("/papelera/previsualizar-purga", gestor.PrevisualizarPurgaMasiva)
 	gestorGroup.Get("/papelera/general", gestor.ObtenerPapeleraGeneral)
 	gestorGroup.Get("/papelera/mi-buzon", gestor.ObtenerPapeleraUsuario)
 	gestorGroup.Put("/papelera/:id/asignar", gestor.AsignarDocumentoPapelera)
