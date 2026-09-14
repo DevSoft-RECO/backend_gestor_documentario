@@ -503,3 +503,50 @@ func isUserAdmin(c *fiber.Ctx) bool {
 
 	return false
 }
+
+// MoverDocumento actualiza la subcategoría de un documento existente (Mover de categoría/fólder).
+// PUT /api/gestor/documentos/:documento_id/mover
+func MoverDocumento(c *fiber.Ctx) error {
+	if !isUserSuperAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Solo los Super Administradores pueden mover de categoría"})
+	}
+
+	docIDStr := c.Params("documento_id")
+	docID, err := strconv.ParseUint(docIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de documento inválido"})
+	}
+
+	type MovePayload struct {
+		SubcategoriaID uint `json:"subcategoria_id"`
+	}
+
+	var payload MovePayload
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Payload inválido"})
+	}
+
+	if payload.SubcategoriaID == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ID de subcategoría requerido"})
+	}
+
+	var documento models.Documento
+	if err := db.DB.First(&documento, docID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Documento no encontrado"})
+	}
+
+	var count int64
+	db.DB.Model(&models.Documento{}).Where("asociado_id = ? AND subcategoria_id = ? AND id != ?", documento.AsociadoID, payload.SubcategoriaID, documento.ID).Count(&count)
+	if count > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "El usuario ya tiene un documento en esa categoría"})
+	}
+
+	documento.SubcategoriaID = payload.SubcategoriaID
+	if err := db.DB.Save(&documento).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al actualizar la categoría"})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Documento movido exitosamente",
+	})
+}
