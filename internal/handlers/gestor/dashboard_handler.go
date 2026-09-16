@@ -96,7 +96,7 @@ func GetDashboardStats(c *fiber.Ctx) error {
 		Count(&stats.OperacionesMes)
 
 	// 7. Documentos creados por mes (últimos 6 meses)
-	var docsPorMes []MonthlyCount
+	docsPorMes := []MonthlyCount{}
 	seisAtras := ahora.AddDate(0, -6, 0)
 	db.DB.Table("documentos").
 		Select("TO_CHAR(fecha_creacion, 'YYYY-MM') AS mes, COUNT(*) AS total").
@@ -117,18 +117,18 @@ func GetDashboardStats(c *fiber.Ctx) error {
 	stats.DocumentosPorMes = docsPorMes
 
 	// 7.5 Asociados creados por mes (últimos 6 meses)
-	var asocPorMes []MonthlyCount
+	asocPorMes := []MonthlyCount{}
 	db.DB.Table("asociados").
-		Select("TO_CHAR(fecha_creacion, 'YYYY-MM') AS mes, COUNT(*) AS total").
-		Where("fecha_creacion >= ?", seisAtras).
+		Select("TO_CHAR(fecha_registro, 'YYYY-MM') AS mes, COUNT(*) AS total").
+		Where("fecha_registro >= ?", seisAtras).
 		Group("mes").
 		Order("mes ASC").
 		Scan(&asocPorMes)
 
 	if len(asocPorMes) == 0 {
 		db.DB.Table("asociados").
-			Select("DATE_FORMAT(fecha_creacion, '%Y-%m') AS mes, COUNT(*) AS total").
-			Where("fecha_creacion >= ?", seisAtras).
+			Select("DATE_FORMAT(fecha_registro, '%Y-%m') AS mes, COUNT(*) AS total").
+			Where("fecha_registro >= ?", seisAtras).
 			Group("mes").
 			Order("mes ASC").
 			Scan(&asocPorMes)
