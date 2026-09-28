@@ -95,6 +95,12 @@ func SetupRoutes(app *fiber.App) {
 	manualesGroup.Delete("/actualizaciones/:id", manuales.DeleteActualizacion)
 	manualesGroup.Get("/actualizaciones/:id/url", manuales.GenerarURLActualizacion)
 
+	// Reportería de Normativas - Protegido exclusivamente con el permiso "reportes_normativas"
+	reportesNormativasGroup := manualesGroup.Group("/reportes", middleware.RequirePermission("reportes_normativas"))
+	reportesNormativasGroup.Get("/filtros", manuales.GetReporteNormativasFiltros)
+	reportesNormativasGroup.Get("/listado", manuales.GetReporteNormativas)
+	reportesNormativasGroup.Get("/exportar", manuales.ExportarReporteNormativasCSV)
+
 	// Servir archivos subidos (Deshabilitado: migrado a almacenamiento GCS con URLs firmadas temporales)
 	// app.Static("/uploads", "./uploads")
 

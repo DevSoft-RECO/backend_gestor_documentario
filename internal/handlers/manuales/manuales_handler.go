@@ -1,6 +1,7 @@
 package manuales
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,6 +110,32 @@ func isUserAdmin(c *fiber.Ctx) bool {
 		}
 	}
 
+	return false
+}
+
+// hasPermissionOrAdmin verifica si el usuario es Admin o posee un permiso específico (como reportes_normativas)
+func hasPermissionOrAdmin(c *fiber.Ctx, perm string) bool {
+	if isUserAdmin(c) {
+		return true
+	}
+	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+	if permsRaw, ok := claims["permissions"]; ok {
+		switch p := permsRaw.(type) {
+		case []interface{}:
+			for _, item := range p {
+				if s, ok := item.(string); ok && s == perm {
+					return true
+				}
+			}
+		case string:
+			if p == perm {
+				return true
+			}
+		}
+	}
 	return false
 }
 
@@ -682,8 +709,8 @@ func GenerarURLManual(c *fiber.Ctx) error {
 	}
 
 	// Validar permisos
-	isAdmin := isUserAdmin(c)
-	if !isAdmin {
+	canView := hasPermissionOrAdmin(c, "reportes_normativas")
+	if !canView {
 		// Validar si el puesto del lector regular está autorizado
 		puestoID := getUsuarioPuestoID(c)
 		authorized := false
@@ -952,8 +979,8 @@ func GenerarURLActualizacion(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Manual asociado no encontrado"})
 	}
 
-	isAdmin := isUserAdmin(c)
-	if !isAdmin {
+	canView := hasPermissionOrAdmin(c, "reportes_normativas")
+	if !canView {
 		puestoID := getUsuarioPuestoID(c)
 		authorized := false
 		for _, p := range manual.PuestosAutorizados {
@@ -1030,3 +1057,274 @@ func GetAdminManuales(c *fiber.Ctx) error {
 		"limit":      limit,
 	})
 }
+
+// === MÓDULO DE REPORTERÍA DE NORMATIVAS ===
+
+// GetReporteNormativasFiltros obtiene la taxonomía completa (Gavetas, Portafolios, Carpetas y Puestos) para alimentar los filtros del reporte
+func GetReporteNormativasFiltros(c *fiber.Ctx) error {
+	var categorias []models.ManualCategoria
+	err := db.DB.Preload("Subcategorias", func(db *gorm.DB) *gorm.DB {
+		return db.Order("nombre ASC")
+	}).Preload("Subcategorias.Carpetas", func(db *gorm.DB) *gorm.DB {
+		return db.Order("nombre ASC")
+	}).Order("nombre ASC").Find(&categorias).Error
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener filtros de categorías"})
+	}
+
+	var puestos []models.Puesto
+	if err := db.DB.Order("nombre ASC").Find(&puestos).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener puestos"})
+	}
+
+	return c.JSON(fiber.Map{
+		"categorias": categorias,
+		"puestos":    puestos,
+	})
+}
+
+// GetReporteNormativas consulta las normativas con soporte para filtros por gaveta, área/portafolio, tipo/carpeta y búsqueda
+func GetReporteNormativas(c *fiber.Ctx) error {
+	search := strings.TrimSpace(c.Query("search", ""))
+	categoriaID := strings.TrimSpace(c.Query("categoria_id", ""))
+	subcategoriaID := strings.TrimSpace(c.Query("subcategoria_id", ""))
+	carpetaID := strings.TrimSpace(c.Query("carpeta_id", ""))
+	startDate := strings.TrimSpace(c.Query("start_date", ""))
+	endDate := strings.TrimSpace(c.Query("end_date", ""))
+
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "15"))
+	if limit < 1 {
+		limit = 15
+	}
+	offset := (page - 1) * limit
+
+	query := db.DB.Model(&models.ManualDocumento{})
+
+	if categoriaID != "" || subcategoriaID != "" {
+		query = query.Joins("JOIN manual_carpetas mc ON mc.id = manual_documentos.manual_carpeta_id")
+		if categoriaID != "" {
+			query = query.Joins("JOIN manual_subcategorias ms ON ms.id = mc.manual_subcategoria_id").
+				Where("ms.manual_categoria_id = ?", categoriaID)
+		}
+		if subcategoriaID != "" {
+			query = query.Where("mc.manual_subcategoria_id = ?", subcategoriaID)
+		}
+	}
+
+	if carpetaID != "" {
+		query = query.Where("manual_documentos.manual_carpeta_id = ?", carpetaID)
+	}
+
+	if search != "" {
+		s := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(manual_documentos.titulo) LIKE ? OR LOWER(manual_documentos.numero_acta) LIKE ?", s, s)
+	}
+
+	if startDate != "" && endDate != "" {
+		query = query.Where("(manual_documentos.fecha_aprobacion BETWEEN ? AND ?) OR (manual_documentos.fecha_creacion BETWEEN ? AND ?)",
+			startDate+" 00:00:00", endDate+" 23:59:59", startDate+" 00:00:00", endDate+" 23:59:59")
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al contar normativas"})
+	}
+
+	var documentos []models.ManualDocumento
+	err := query.
+		Preload("PuestosAutorizados").
+		Preload("Actualizaciones", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
+		}).
+		Preload("Carpeta.Subcategoria.Categoria").
+		Preload("Usuario").
+		Order("manual_documentos.id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&documentos).Error
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al consultar normativas"})
+	}
+
+	return c.JSON(fiber.Map{
+		"documentos": documentos,
+		"total":      total,
+		"page":       page,
+		"limit":      limit,
+	})
+}
+
+// ExportarReporteNormativasCSV exporta a CSV los documentos normativos vigentes con las 3 columnas de versiones y responsables
+func ExportarReporteNormativasCSV(c *fiber.Ctx) error {
+	search := strings.TrimSpace(c.Query("search", ""))
+	categoriaID := strings.TrimSpace(c.Query("categoria_id", ""))
+	subcategoriaID := strings.TrimSpace(c.Query("subcategoria_id", ""))
+	carpetaID := strings.TrimSpace(c.Query("carpeta_id", ""))
+	startDate := strings.TrimSpace(c.Query("start_date", ""))
+	endDate := strings.TrimSpace(c.Query("end_date", ""))
+
+	query := db.DB.Model(&models.ManualDocumento{})
+
+	if categoriaID != "" || subcategoriaID != "" {
+		query = query.Joins("JOIN manual_carpetas mc ON mc.id = manual_documentos.manual_carpeta_id")
+		if categoriaID != "" {
+			query = query.Joins("JOIN manual_subcategorias ms ON ms.id = mc.manual_subcategoria_id").
+				Where("ms.manual_categoria_id = ?", categoriaID)
+		}
+		if subcategoriaID != "" {
+			query = query.Where("mc.manual_subcategoria_id = ?", subcategoriaID)
+		}
+	}
+
+	if carpetaID != "" {
+		query = query.Where("manual_documentos.manual_carpeta_id = ?", carpetaID)
+	}
+
+	if search != "" {
+		s := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(manual_documentos.titulo) LIKE ? OR LOWER(manual_documentos.numero_acta) LIKE ?", s, s)
+	}
+
+	if startDate != "" && endDate != "" {
+		query = query.Where("(manual_documentos.fecha_aprobacion BETWEEN ? AND ?) OR (manual_documentos.fecha_creacion BETWEEN ? AND ?)",
+			startDate+" 00:00:00", endDate+" 23:59:59", startDate+" 00:00:00", endDate+" 23:59:59")
+	}
+
+	var documentos []models.ManualDocumento
+	err := query.
+		Preload("PuestosAutorizados").
+		Preload("Actualizaciones", func(db *gorm.DB) *gorm.DB {
+			return db.Order("id ASC")
+		}).
+		Preload("Carpeta.Subcategoria.Categoria").
+		Preload("Usuario").
+		Order("manual_documentos.id ASC").
+		Find(&documentos).Error
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al consultar normativas para exportar"})
+	}
+
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("Content-Disposition", "attachment; filename=reporte_normativas_vigentes.csv")
+
+	// Prepend UTF-8 BOM so Excel opens accents and special characters without encoding glitches
+	c.Response().BodyWriter().Write([]byte{0xEF, 0xBB, 0xBF})
+
+	writer := csv.NewWriter(c.Response().BodyWriter())
+	defer writer.Flush()
+
+	// Encabezados del reporte
+	writer.Write([]string{
+		"ID",
+		"Título de la Normativa",
+		"Estado",
+		"Tipo Documental",
+		"Portafolio / Área",
+		"Gaveta",
+		"Páginas Físicas",
+		"Responsables / Puestos con Acceso",
+		"No. Acta Aprobación",
+		"Fecha Aprobación",
+		"Descripción del Cambio",
+		"Total de Actualizaciones",
+		"Fecha de Registro",
+		"Última Modificación",
+	})
+
+	for _, doc := range documentos {
+		tipoDoc := "No especificado"
+		area := "No asignada"
+		gaveta := "No asignada"
+
+		if doc.Carpeta.Nombre != "" {
+			tipoDoc = doc.Carpeta.Nombre
+		}
+		if doc.Carpeta.Subcategoria.Nombre != "" {
+			area = doc.Carpeta.Subcategoria.Nombre
+		}
+		if doc.Carpeta.Subcategoria.Categoria.Nombre != "" {
+			gaveta = doc.Carpeta.Subcategoria.Categoria.Nombre
+		}
+
+		// Responsables / Puestos con acceso
+		puestosList := make([]string, 0, len(doc.PuestosAutorizados))
+		for _, p := range doc.PuestosAutorizados {
+			puestosList = append(puestosList, p.Nombre)
+		}
+		puestosStr := "Acceso general (Todos los puestos)"
+		if len(puestosList) > 0 {
+			puestosStr = strings.Join(puestosList, " | ")
+		}
+
+		// Control de Versiones en 3 Columnas:
+		// 1. No. Acta Aprobación
+		// 2. Fecha Aprobación
+		// 3. Descripción del Cambio
+		actasList := []string{}
+		fechasList := []string{}
+		descList := []string{}
+
+		// Entrada inicial
+		actaBase := doc.NumeroActa
+		if strings.TrimSpace(actaBase) == "" {
+			actaBase = "Sin acta registrada"
+		}
+		actasList = append(actasList, fmt.Sprintf("[Inicial] %s", actaBase))
+
+		fechaBase := "No especificada"
+		if doc.FechaAprobacion != nil {
+			fechaBase = doc.FechaAprobacion.Format("2006-01-02")
+		}
+		fechasList = append(fechasList, fmt.Sprintf("[Inicial] %s", fechaBase))
+		descList = append(descList, "[Inicial] Aprobación y emisión inicial")
+
+		// Actualizaciones posteriores
+		for i, act := range doc.Actualizaciones {
+			vNum := i + 1
+			actaAct := act.NumeroActa
+			if strings.TrimSpace(actaAct) == "" {
+				actaAct = fmt.Sprintf("Acta Act. %d", vNum)
+			}
+			actasList = append(actasList, fmt.Sprintf("[Act. %d] %s", vNum, actaAct))
+
+			fAct := "No especificada"
+			if act.FechaAprobacion != nil {
+				fAct = act.FechaAprobacion.Format("2006-01-02")
+			}
+			fechasList = append(fechasList, fmt.Sprintf("[Act. %d] %s", vNum, fAct))
+
+			desc := act.Descripcion
+			if strings.TrimSpace(desc) == "" {
+				desc = "Sin detalle especificado"
+			}
+			descList = append(descList, fmt.Sprintf("[Act. %d] %s", vNum, desc))
+		}
+
+		writer.Write([]string{
+			fmt.Sprintf("%d", doc.ID),
+			doc.Titulo,
+			"Vigente",
+			tipoDoc,
+			area,
+			gaveta,
+			fmt.Sprintf("%d", doc.TotalPaginas),
+			puestosStr,
+			strings.Join(actasList, " // "),
+			strings.Join(fechasList, " // "),
+			strings.Join(descList, " // "),
+			fmt.Sprintf("%d", len(doc.Actualizaciones)),
+			doc.FechaCreacion.Format("2006-01-02 15:04"),
+			doc.UltimaActualizacion.Format("2006-01-02 15:04"),
+		})
+	}
+
+	return nil
+}
+
