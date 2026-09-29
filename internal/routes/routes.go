@@ -114,6 +114,7 @@ func SetupRoutes(app *fiber.App) {
 	// Administración de Formatos (Super Admin o permiso admin_formatos / admin_biblioteca)
 	formatosAdminGroup := formatosGroup.Group("/admin")
 	formatosAdminGroup.Get("/documentos", formatos.GetAdminFormatos)
+	formatosAdminGroup.Get("/exportar", formatos.ExportarReporteFormatosCSV)
 	formatosAdminGroup.Post("/documentos/upload", formatos.SubirFormato)
 	formatosAdminGroup.Put("/documentos/:id", formatos.UpdateFormato)
 	formatosAdminGroup.Delete("/documentos/:id", formatos.DeleteFormato)

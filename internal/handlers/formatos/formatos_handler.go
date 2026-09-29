@@ -1,6 +1,7 @@
 package formatos
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -717,4 +718,155 @@ func GetPuestosFormatos(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al obtener puestos"})
 	}
 	return c.JSON(puestos)
+}
+
+// ExportarReporteFormatosCSV genera un archivo CSV con el inventario completo o filtrado de formatos
+func ExportarReporteFormatosCSV(c *fiber.Ctx) error {
+	if !isUserAdminFormatos(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes permisos de administración"})
+	}
+
+	search := c.Query("search")
+	areaID := c.Query("area_id")
+	tipoArchivo := c.Query("tipo_archivo")
+
+	query := db.DB.Model(&models.FormatoDocumento{}).
+		Preload("Area").
+		Preload("Usuario").
+		Preload("PuestosConfig.Puesto")
+
+	if areaID != "" && areaID != "all" {
+		query = query.Where("formato_area_id = ?", areaID)
+	}
+
+	if tipoArchivo != "" && tipoArchivo != "all" {
+		query = query.Where("LOWER(tipo_archivo) = ?", strings.ToLower(tipoArchivo))
+	}
+
+	if search != "" {
+		s := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(codigo) LIKE ? OR LOWER(titulo) LIKE ? OR LOWER(descripcion) LIKE ?", s, s, s)
+	}
+
+	var formatos []models.FormatoDocumento
+	if err := query.Order("codigo ASC, titulo ASC").Find(&formatos).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al consultar formatos para reporte"})
+	}
+
+	now := time.Now()
+	fileName := fmt.Sprintf("reporte_formatos_institucionales_%s.csv", now.Format("2006-01-02_150405"))
+
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+
+	// UTF-8 BOM para apertura nativa correcta en Microsoft Excel (Windows)
+	c.Write([]byte{0xEF, 0xBB, 0xBF})
+
+	writer := csv.NewWriter(c)
+	defer writer.Flush()
+
+	headers := []string{
+		"ID",
+		"Código",
+		"Título del Formato",
+		"Descripción",
+		"Área Institucional",
+		"Tipo de Archivo",
+		"Versión",
+		"Total Páginas",
+		"Total Descargas",
+		"Estado",
+		"Fecha Aprobación",
+		"Fecha Vigencia",
+		"Puestos Autorizados (Visualización)",
+		"Puestos Autorizados (Descarga)",
+		"Registrado Por",
+		"Fecha de Creación",
+		"Última Actualización",
+	}
+	if err := writer.Write(headers); err != nil {
+		return err
+	}
+
+	for _, doc := range formatos {
+		areaNombre := "General / Sin Área"
+		if doc.Area.Nombre != "" {
+			areaNombre = doc.Area.Nombre
+		}
+
+		puestosVerList := []string{}
+		puestosDescList := []string{}
+
+		for _, pc := range doc.PuestosConfig {
+			puestoNombre := pc.Puesto.Nombre
+			if puestoNombre == "" {
+				puestoNombre = fmt.Sprintf("Puesto #%d", pc.PuestoID)
+			}
+			if pc.PuedeVer {
+				puestosVerList = append(puestosVerList, puestoNombre)
+			}
+			if pc.PuedeDescargar {
+				puestosDescList = append(puestosDescList, puestoNombre)
+			}
+		}
+
+		puestosVerStr := "Acceso General (Todos)"
+		if len(doc.PuestosConfig) > 0 {
+			if len(puestosVerList) > 0 {
+				puestosVerStr = strings.Join(puestosVerList, " | ")
+			} else {
+				puestosVerStr = "Sin visualización permitida"
+			}
+		}
+
+		puestosDescStr := "Acceso General (Todos)"
+		if len(doc.PuestosConfig) > 0 {
+			if len(puestosDescList) > 0 {
+				puestosDescStr = strings.Join(puestosDescList, " | ")
+			} else {
+				puestosDescStr = "Sin descargas autorizadas"
+			}
+		}
+
+		fechaAprobacionStr := "No especificada"
+		if doc.FechaAprobacion != nil {
+			fechaAprobacionStr = doc.FechaAprobacion.Format("2006-01-02")
+		}
+
+		fechaVigenciaStr := "No especificada"
+		if doc.FechaVigencia != nil {
+			fechaVigenciaStr = doc.FechaVigencia.Format("2006-01-02")
+		}
+
+		usuarioStr := "Sistema"
+		if doc.Usuario.Name != nil && *doc.Usuario.Name != "" {
+			usuarioStr = *doc.Usuario.Name
+		} else if doc.Usuario.Username != nil && *doc.Usuario.Username != "" {
+			usuarioStr = *doc.Usuario.Username
+		} else if doc.UsuarioID > 0 {
+			usuarioStr = fmt.Sprintf("Usuario #%d", doc.UsuarioID)
+		}
+
+		writer.Write([]string{
+			fmt.Sprintf("%d", doc.ID),
+			doc.Codigo,
+			doc.Titulo,
+			doc.Descripcion,
+			areaNombre,
+			strings.ToUpper(doc.TipoArchivo),
+			doc.Version,
+			fmt.Sprintf("%d", doc.TotalPaginas),
+			fmt.Sprintf("%d", doc.TotalDescargas),
+			"Vigente",
+			fechaAprobacionStr,
+			fechaVigenciaStr,
+			puestosVerStr,
+			puestosDescStr,
+			usuarioStr,
+			doc.FechaCreacion.Format("2006-01-02 15:04"),
+			doc.UltimaActualizacion.Format("2006-01-02 15:04"),
+		})
+	}
+
+	return nil
 }
