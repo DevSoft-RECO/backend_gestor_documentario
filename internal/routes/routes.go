@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/config"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers"
+	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers/formatos"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers/gestor"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/handlers/manuales"
 	"github.com/DevSoft-RECO/backend-creditos-go/internal/middleware"
@@ -100,6 +101,25 @@ func SetupRoutes(app *fiber.App) {
 	reportesNormativasGroup.Get("/filtros", manuales.GetReporteNormativasFiltros)
 	reportesNormativasGroup.Get("/listado", manuales.GetReporteNormativas)
 	reportesNormativasGroup.Get("/exportar", manuales.ExportarReporteNormativasCSV)
+
+	// === MÓDULO DE FORMATOS INSTITUCIONALES ===
+	formatosGroup := api.Group("/formatos", middleware.AuthRequired)
+	// Catálogo y accesos generales (con validación de permisos por puesto)
+	formatosGroup.Get("/catalogo", formatos.GetCatalogoFormatos)
+	formatosGroup.Get("/areas", formatos.GetAreas)
+	formatosGroup.Get("/documentos/:id/ver", formatos.VerFormato)
+	formatosGroup.Get("/documentos/:id/descargar", formatos.DescargarFormato)
+	formatosGroup.Get("/puestos", formatos.GetPuestosFormatos)
+
+	// Administración de Formatos (Super Admin o permiso admin_formatos / admin_biblioteca)
+	formatosAdminGroup := formatosGroup.Group("/admin")
+	formatosAdminGroup.Get("/documentos", formatos.GetAdminFormatos)
+	formatosAdminGroup.Post("/documentos/upload", formatos.SubirFormato)
+	formatosAdminGroup.Put("/documentos/:id", formatos.UpdateFormato)
+	formatosAdminGroup.Delete("/documentos/:id", formatos.DeleteFormato)
+	formatosAdminGroup.Post("/areas", formatos.CreateArea)
+	formatosAdminGroup.Put("/areas/:id", formatos.UpdateArea)
+	formatosAdminGroup.Delete("/areas/:id", formatos.DeleteArea)
 
 	// Servir archivos subidos (Deshabilitado: migrado a almacenamiento GCS con URLs firmadas temporales)
 	// app.Static("/uploads", "./uploads")
