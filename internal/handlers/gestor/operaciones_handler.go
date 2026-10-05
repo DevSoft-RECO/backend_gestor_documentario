@@ -234,6 +234,10 @@ func InsertarPaginas(c *fiber.Ctx) error {
 				indice.FechaVencimiento = &parsedDate
 			}
 		}
+		tipoFecha := strings.TrimSpace(c.FormValue("tipo_fecha"))
+		if tipoFecha != "" {
+			indice.TipoFecha = &tipoFecha
+		}
 		if err := tx.Create(&indice).Error; err != nil {
 			tx.Rollback()
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Error al guardar el índice lógico"})
@@ -624,6 +628,7 @@ func ActualizarIndice(c *fiber.Ctx) error {
 	var input struct {
 		Etiqueta         string  `json:"etiqueta"`
 		NumeroDocumento  *string `json:"numero_documento"`
+		TipoFecha        *string `json:"tipo_fecha"`
 		FechaVencimiento *string `json:"fecha_vencimiento"`
 	}
 
@@ -653,11 +658,18 @@ func ActualizarIndice(c *fiber.Ctx) error {
 		dateStr := strings.TrimSpace(*input.FechaVencimiento)
 		if parsedDate, err := time.Parse("2006-01-02", dateStr); err == nil {
 			indice.FechaVencimiento = &parsedDate
+			if input.TipoFecha != nil && strings.TrimSpace(*input.TipoFecha) != "" {
+				trimmedTipo := strings.TrimSpace(*input.TipoFecha)
+				indice.TipoFecha = &trimmedTipo
+			} else {
+				indice.TipoFecha = nil
+			}
 		} else {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Fecha de vencimiento con formato inválido (debe ser AAAA-MM-DD)"})
 		}
 	} else {
 		indice.FechaVencimiento = nil
+		indice.TipoFecha = nil
 	}
 
 	if err := db.DB.Save(&indice).Error; err != nil {

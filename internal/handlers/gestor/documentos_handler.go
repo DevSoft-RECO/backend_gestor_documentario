@@ -253,34 +253,54 @@ func SubirDocumento(c *fiber.Ctx) error {
 		}
 	}
 
-	// Crear índice inicial si se proporciona etiqueta
-	etiqueta := c.FormValue("etiqueta")
-	if etiqueta != "" {
-		fechaVencimiento := c.FormValue("fecha_vencimiento")
-		var fechaVencimientoPtr *time.Time
-		if fechaVencimiento != "" {
-			if parsedDate, err := time.Parse("2006-01-02", fechaVencimiento); err == nil {
-				fechaVencimientoPtr = &parsedDate
-			}
-		}
+	esActualizacion := (result.Error == nil)
 
-		numeroDocumento := c.FormValue("numero_documento")
-		var numDocPtr *string
-		if numeroDocumento != "" {
-			numDocPtr = &numeroDocumento
+	// Crear índice inicial o de actualización (garantizando etiqueta por defecto si viene vacía)
+	etiqueta := strings.TrimSpace(c.FormValue("etiqueta"))
+	if etiqueta == "" {
+		if esActualizacion {
+			etiqueta = "Actualización de Documento"
+		} else {
+			etiqueta = "Documento Inicial"
 		}
-
-		indice := models.IndicePagina{
-			DocumentoID:      documento.ID,
-			PaginaInicio:     1,
-			TipoMovimiento:   "Documento Inicial",
-			Etiqueta:         etiqueta,
-			NumeroDocumento:  numDocPtr,
-			UsuarioID:        usuarioID,
-			FechaVencimiento: fechaVencimientoPtr,
-		}
-		db.DB.Create(&indice)
 	}
+
+	tipoMovimiento := "Documento Inicial"
+	if esActualizacion {
+		tipoMovimiento = "Actualización"
+	}
+
+	fechaVencimiento := strings.TrimSpace(c.FormValue("fecha_vencimiento"))
+	var fechaVencimientoPtr *time.Time
+	if fechaVencimiento != "" {
+		if parsedDate, err := time.Parse("2006-01-02", fechaVencimiento); err == nil {
+			fechaVencimientoPtr = &parsedDate
+		}
+	}
+
+	tipoFecha := strings.TrimSpace(c.FormValue("tipo_fecha"))
+	var tipoFechaPtr *string
+	if tipoFecha != "" {
+		tipoFechaPtr = &tipoFecha
+	}
+
+	numeroDocumento := strings.TrimSpace(c.FormValue("numero_documento"))
+	var numDocPtr *string
+	if numeroDocumento != "" {
+		numDocPtr = &numeroDocumento
+	}
+
+	indice := models.IndicePagina{
+		DocumentoID:      documento.ID,
+		PaginaInicio:     1,
+		TipoMovimiento:   tipoMovimiento,
+		Etiqueta:         etiqueta,
+		NumeroDocumento:  numDocPtr,
+		TipoFecha:        tipoFechaPtr,
+		UsuarioID:        usuarioID,
+		FechaVencimiento: fechaVencimientoPtr,
+	}
+	db.DB.Create(&indice)
 
 	// Devolver el documento creado/actualizado
 	// Precargamos la subcategoría para enviarla al frontend

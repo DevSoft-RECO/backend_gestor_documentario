@@ -83,7 +83,7 @@ func GetDashboardStats(c *fiber.Ctx) error {
 	ahora := time.Now()
 	en30Dias := ahora.AddDate(0, 0, 30)
 	db.DB.Table("indices_paginas").
-		Where("fecha_vencimiento IS NOT NULL AND fecha_vencimiento BETWEEN ? AND ?", ahora, en30Dias).
+		Where("fecha_vencimiento IS NOT NULL AND (tipo_fecha = 'fecha_vencimiento' OR tipo_fecha IS NULL) AND fecha_vencimiento BETWEEN ? AND ?", ahora, en30Dias).
 		Count(&stats.DocsPorVencer)
 
 	// 5. Categorías Activas
@@ -166,7 +166,7 @@ func GetDashboardStats(c *fiber.Ctx) error {
 		Joins("JOIN documentos ON indices_paginas.documento_id = documentos.id").
 		Joins("JOIN asociados ON documentos.asociado_id = asociados.id").
 		Joins("JOIN subcategorias ON documentos.subcategoria_id = subcategorias.id").
-		Where("indices_paginas.fecha_vencimiento IS NOT NULL AND indices_paginas.fecha_vencimiento BETWEEN ? AND ?", ahora, en30Dias).
+		Where("indices_paginas.fecha_vencimiento IS NOT NULL AND (indices_paginas.tipo_fecha = 'fecha_vencimiento' OR indices_paginas.tipo_fecha IS NULL) AND indices_paginas.fecha_vencimiento BETWEEN ? AND ?", ahora, en30Dias).
 		Order("indices_paginas.fecha_vencimiento ASC").
 		Scan(&alertas)
 	stats.AlertasVencimiento = alertas
