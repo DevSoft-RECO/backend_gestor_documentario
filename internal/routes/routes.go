@@ -66,8 +66,8 @@ func SetupRoutes(app *fiber.App) {
 	gestorGroup.Delete("/documentos/:documento_id/eliminar", gestor.EliminarPaginaEspecifica)
 	gestorGroup.Put("/indices/:id", gestor.ActualizarIndice)
 	gestorGroup.Get("/busqueda/documento/:numero", gestor.BuscarDocumentoPorNumero)
-	gestorGroup.Get("/dashboard/stats", gestor.GetDashboardStats)
-	gestorGroup.Get("/dashboard/gcs-size", gestor.GetGCSStorageSize)
+	gestorGroup.Get("/dashboard/stats", middleware.RequirePermission("ver-dashboard-hum-norm"), gestor.GetDashboardStats)
+	gestorGroup.Get("/dashboard/gcs-size", middleware.RequirePermission("ver-dashboard-hum-norm"), gestor.GetGCSStorageSize)
 
 	// Reportes Exportación (CSV)
 	reportesGroup := gestorGroup.Group("/exportar", middleware.RequirePermission("reportes_hum"))

@@ -36,7 +36,7 @@ func RequirePermission(requiredPerm string) fiber.Handler {
 
 		isSuperAdmin := false
 		for _, r := range roles {
-			if r == "Super Admin" {
+			if r == "Super Admin" || r == "Administrador" || r == "Admin" {
 				isSuperAdmin = true
 				break
 			}
@@ -49,7 +49,7 @@ func RequirePermission(requiredPerm string) fiber.Handler {
 
 		hasPerm := false
 		for _, p := range perms {
-			if p == requiredPerm {
+			if p == requiredPerm || (requiredPerm == "ver-dashboard-hum-norm" && p == "ver_dashboard_hum_norm") || (requiredPerm == "ver_dashboard_hum_norm" && p == "ver-dashboard-hum-norm") {
 				hasPerm = true
 				break
 			}
