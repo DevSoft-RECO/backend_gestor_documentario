@@ -21,6 +21,24 @@ import (
 
 // === CONTROL DE ACCESO ROBUSTO ===
 
+// getUsuarioID extrae el ID numérico del usuario desde los claims del JWT
+func getUsuarioID(c *fiber.Ctx) uint {
+	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
+	if !ok {
+		return 0
+	}
+	if sub, ok := claims["sub"]; ok {
+		if idFloat, ok := sub.(float64); ok {
+			return uint(idFloat)
+		} else if idStr, ok := sub.(string); ok {
+			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+				return uint(parsed)
+			}
+		}
+	}
+	return 0
+}
+
 // isUserAdmin verifica de forma óptima si el usuario tiene rol de Super Admin o el permiso admin_biblioteca
 func isUserAdmin(c *fiber.Ctx) bool {
 	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
@@ -61,17 +79,7 @@ func isUserAdmin(c *fiber.Ctx) bool {
 	}
 
 	// 3. Consulta de respaldo rápida a la Base de Datos Local
-	var usuarioID uint
-	if sub, ok := claims["sub"]; ok {
-		if idFloat, ok := sub.(float64); ok {
-			usuarioID = uint(idFloat)
-		} else if idStr, ok := sub.(string); ok {
-			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
-				usuarioID = uint(parsed)
-			}
-		}
-	}
-
+	usuarioID := getUsuarioID(c)
 	if usuarioID == 0 {
 		return false
 	}
@@ -91,7 +99,7 @@ func isUserAdmin(c *fiber.Ctx) bool {
 					return true
 				}
 			}
-		} else if strings.Contains(*userLocal.Roles, "Super Admin") {
+		} else if strings.Contains(*userLocal.Roles, "Super Admin") || strings.Contains(*userLocal.Roles, "Administrador") || strings.Contains(*userLocal.Roles, "Admin") {
 			return true
 		}
 	}
@@ -122,6 +130,8 @@ func hasPermissionOrAdmin(c *fiber.Ctx, perm string) bool {
 	if !ok {
 		return false
 	}
+
+	// 1. Verificar permisos en Claims (Token)
 	if permsRaw, ok := claims["permissions"]; ok {
 		switch p := permsRaw.(type) {
 		case []interface{}:
@@ -136,27 +146,52 @@ func hasPermissionOrAdmin(c *fiber.Ctx, perm string) bool {
 			}
 		}
 	}
+
+	// 2. Consulta de respaldo rápida a la Base de Datos Local
+	usuarioID := getUsuarioID(c)
+	if usuarioID == 0 {
+		return false
+	}
+
+	var userLocal models.Usuario
+	if err := db.DB.Select("roles, permissions").First(&userLocal, usuarioID).Error; err != nil {
+		return false
+	}
+
+	// Verificar Roles en la BD
+	if userLocal.Roles != nil {
+		var roles []string
+		if err := json.Unmarshal([]byte(*userLocal.Roles), &roles); err == nil {
+			for _, r := range roles {
+				if r == "Super Admin" || r == "Administrador" || r == "Admin" {
+					return true
+				}
+			}
+		} else if strings.Contains(*userLocal.Roles, "Super Admin") || strings.Contains(*userLocal.Roles, "Administrador") || strings.Contains(*userLocal.Roles, "Admin") {
+			return true
+		}
+	}
+
+	// Verificar Permisos en la BD
+	if userLocal.Permissions != nil {
+		var perms []string
+		if err := json.Unmarshal([]byte(*userLocal.Permissions), &perms); err == nil {
+			for _, p := range perms {
+				if p == perm {
+					return true
+				}
+			}
+		} else if strings.Contains(*userLocal.Permissions, perm) {
+			return true
+		}
+	}
+
 	return false
 }
 
 // getUsuarioPuestoID obtiene el ID de puesto del usuario autenticado
 func getUsuarioPuestoID(c *fiber.Ctx) uint {
-	claims, ok := c.Locals("userClaims").(jwt.MapClaims)
-	if !ok {
-		return 0
-	}
-
-	var usuarioID uint
-	if sub, ok := claims["sub"]; ok {
-		if idFloat, ok := sub.(float64); ok {
-			usuarioID = uint(idFloat)
-		} else if idStr, ok := sub.(string); ok {
-			if parsed, err := strconv.ParseUint(idStr, 10, 32); err == nil {
-				usuarioID = uint(parsed)
-			}
-		}
-	}
-
+	usuarioID := getUsuarioID(c)
 	if usuarioID == 0 {
 		return 0
 	}
@@ -708,20 +743,22 @@ func GenerarURLManual(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Manual no encontrado"})
 	}
 
-	// Validar permisos
+	// Validar permisos (Admin o permiso de reportería de normativas)
 	canView := hasPermissionOrAdmin(c, "reportes_normativas")
 	if !canView {
-		// Validar si el puesto del lector regular está autorizado
-		puestoID := getUsuarioPuestoID(c)
-		authorized := false
-		for _, p := range manual.PuestosAutorizados {
-			if p.ID == puestoID {
-				authorized = true
-				break
+		// Validar si el puesto del lector regular está autorizado (si no tiene puestos específicos, es de acceso institucional general)
+		if len(manual.PuestosAutorizados) > 0 {
+			puestoID := getUsuarioPuestoID(c)
+			authorized := false
+			for _, p := range manual.PuestosAutorizados {
+				if p.ID == puestoID {
+					authorized = true
+					break
+				}
 			}
-		}
-		if !authorized {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes autorización de lectura para este manual"})
+			if !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes autorización de lectura para este manual"})
+			}
 		}
 	}
 
@@ -981,16 +1018,18 @@ func GenerarURLActualizacion(c *fiber.Ctx) error {
 
 	canView := hasPermissionOrAdmin(c, "reportes_normativas")
 	if !canView {
-		puestoID := getUsuarioPuestoID(c)
-		authorized := false
-		for _, p := range manual.PuestosAutorizados {
-			if p.ID == puestoID {
-				authorized = true
-				break
+		if len(manual.PuestosAutorizados) > 0 {
+			puestoID := getUsuarioPuestoID(c)
+			authorized := false
+			for _, p := range manual.PuestosAutorizados {
+				if p.ID == puestoID {
+					authorized = true
+					break
+				}
 			}
-		}
-		if !authorized {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes autorización de lectura para este manual"})
+			if !authorized {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "No tienes autorización de lectura para este manual"})
+			}
 		}
 	}
 
